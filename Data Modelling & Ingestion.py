@@ -1,30 +1,18 @@
 # Packages
 import sys
 from boto3 import client
-from botocore.exceptions import ClientError
 import io
-import base64
-import PyPDF2
 from io import BytesIO
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part, SafetySetting, HarmBlockThreshold
-import json
-import time
-from datetime import date, datetime
-import re
-from PIL import Image
+from google import genai
+from google.genai import types
 from google.oauth2 import service_account
-import os
-import boto3
 import json
-import re
+from datetime import datetime
 import json
-import hashlib
+import json
 import psycopg2
+from psycopg2.extras import execute_values
 import pandas as pd
-import awswrangler as wr
-import numpy as np
-import uuid
 
 
 env='development'
@@ -81,573 +69,243 @@ dynamoDB=client("dynamodb",region_name=regionName)
 
 s3=client("s3",region_name=regionName)
 
-##############################PDT Functions##################################
+######################################## Database Functions ###########################################
 
-def ThemeDataV2(productCode,tenantID,processCode,themeName):
-
-    bucketName = 'dt-' + tenantID.lower() + suffixS3.lower()
-
-    themeNamekey = f"ThemeMapping/{productCode}/{processCode}/{themeName}.csv"
-
-    themeData = ReadS3(key=themeNamekey, bucket=bucketName)
-
-    themeData['TargetFieldFunction'] = themeData['SourceFieldFunction']
-
-    # Fix: Use .loc for all filtering. Create boolean masks.
-    consFixedVals={}
-    mask1 = (themeData["SourceFieldName"] != "") | themeData['TargetFieldFunction'].notna() | themeData['TargetFieldName'].isin(consFixedVals.keys())
-    themeData = themeData.loc[mask1]
-
-    mask2 = ~themeData['TargetFieldName'].isin(["InPrd From", "InPrd To", "Header",
-                                                "PK", "SK", "Partition Key", "Sort Key",
-                                                "InternalID", "Ver", "Version"])
-    themeData = themeData.loc[mask2]
-
-    themeData["ProcessCode"]=processCode
-    themeData["ThemeName"]=themeName
-
-    themeData = themeData.astype(object)
-    themeData = themeData.where(pd.notna(themeData), None)
-    themeData.replace(['NaN', 'None', 'nan', ''], None, inplace=True)
-
-    return themeData
-
-def ProcessDefn(productCode,processCode,tenantID,themeName=None):
-
-    "Retrieves Process Definition From S3"
-
-    query = "select * from process where process_cd <> 'process_cd' and process_cd = '%s'"%(processCode)
-
-    # Invoice Presence In Database
-
-    df_process=SQLRun(tenantID=tenantID,queryFile=None,writeTo="AthenaResults/",mode="Append",
-                      writeFormat=".csv",returnResp=True,qText=query)
-
-    df_process.rename(columns={
-            'short_text': 'ShortText',
-            'domain'    : 'Domain',
-            'name'     : 'FieldName',
-            'data_type' : 'DataType',
-            'predefined_list': 'PredefinedList'
-        }, inplace=True)
-    
-    if themeName is not None:
-
-        df_theme = ThemeDataV2(productCode,tenantID,processCode,themeName)
-
-        # Merge based on ShortText (process) and TargetFieldName (theme)
-        if 'ShortText' in df_process.columns and 'TargetFieldName' in df_theme.columns:
-            df_result = df_process.merge(
-                df_theme[['TargetFieldName', 'LDE', 'Mandatory']],
-                left_on='ShortText',
-                right_on='TargetFieldName',
-                how='left'
-            )
-            # Rename the added columns if you like
-            df_result.rename(columns={
-                'Mandatory': 'MandatoryFlag'
-            }, inplace=True)
-            df_result.drop(columns=['TargetFieldName'], inplace=True)
-        else:
-            df_result = df_process.copy()
-            df_result['LDE'] = None
-            df_result['MandatoryFlag'] = None
-
-        df_result = df_result.astype(object)
-        df_result = df_result.where(pd.notna(df_result), None)
-
+def ec2confic(tenantID):
+    "connects to ec2 instance and returns connection object."
+    if tenantID != "DataTwin_DB":
+        tenantID = tenantID.lower()  
     else:
-        
-        df_result = df_process.copy()    
+        tenantID = tenantID
+    conn = psycopg2.connect(
+        host = ec2IP,
+        port = port,
+        dbname = tenantID,
+        user = "postgres",
+        password = "dt@2025"
+    )
+    return conn
 
-    return df_result
-
-def convert_to_strptime_format(fmt):
-    """
-    Convert human-readable date format like 'DD-MM-YYYY HH:mm:ss'
-    to Python strptime format like '%d-%m-%Y %H:%M:%S'
-    """
-    return (fmt.replace('DD', '%d')
-                .replace('MM', '%m')
-                .replace('YYYY', '%Y')
-                .replace('HH', '%H')
-                .replace('mm', '%M')
-                .replace('ss', '%S'))
-
-def validate_column_format(inputdata, themedata, exceptions):
-    for index, row in themedata.iterrows():
-        source_field = row['SourceFieldName']
-        data_type = row['TargetFieldDataType']
-        raw_date_format = row.get('DataFormat')  # Expected format for DATE/DATETIME
-        date_format = convert_to_strptime_format(raw_date_format) if raw_date_format else None
-
-        if source_field not in inputdata.columns:
-            continue  # Skip if source field not present in input data
-
-        column_values = inputdata[source_field]
-
-        if data_type in ['FLOAT', 'INTEGER']:
-            # Normalize only string values
-            column_values = column_values.apply(
-                lambda x: str(x).strip().lower() if isinstance(x, str) else x
-            )
-
-            # Replace null-like values with np.nan
-            column_values = column_values.replace(
-                ['nan', 'none', 'pd.na', ''], np.nan
-            )
-
-            # Convert to numeric (invalid values become NaN)
-            converted = pd.to_numeric(column_values, errors='coerce')
-
-            # Identify non-numeric values (i.e., failed conversion and not true nulls)
-            invalid_mask = converted.isna() & ~column_values.isin([np.nan])
-
-            if invalid_mask.any():
-                invalid_values = column_values[invalid_mask].unique().tolist()
-                exceptions.append(
-                    f"Column '{source_field}' contains non-numeric values for expected data type '{data_type}': {invalid_values}"
-                )
-
-        elif data_type in ['DATE', 'DATETIME']:
-            datetime_format = f"{date_format} %H:%M:%S"
-            if not date_format:
-                exceptions.append(f"Expected date format is not specified for column '{source_field}'.")
-                continue
-
-            invalid_dates = []
-            for val in column_values.dropna():
-                str_val = str(val).strip()
-                if str_val in ['2100-12-31', '1988-01-01', 'NaT', 'nan', 'NaN', 'NA', '<NA>', '']:
-                    continue
-                try:
-                    datetime.strptime(str_val, date_format)
-                except ValueError:
-                    try:
-                        datetime.strptime(str_val, datetime_format)
-                    except ValueError:
-                        invalid_dates.append(str_val)
-
-            if invalid_dates:
-                exceptions.append(
-                    f"Column '{source_field}' must match date format '{raw_date_format}'. Found invalid values: {invalid_dates}"
-                )
-
-    return exceptions
-
-def validate_source_field_function(themedata, inputdata,exceptions):
-
-    # Check if 'Mandatory' column exists in themedata
-    if 'Mandatory' not in themedata.columns:
-
-        exceptions.append("The 'themedata' must contain 'Mandatory' column.")
+def fetch_data_from_db(db_conn, query):
     
-    # Filter rows with "*" in 'Mandatory' column
-    starred_rows = themedata[themedata['Mandatory'] == '*']
-    
-    # Initialize lists to store missing fields and missed Mandatory column names
-    missing_fields = []
-    missing_value_fields = []
-    missed_source_field_functions = []
+    try:
+        df = pd.read_sql_query(query, db_conn)
 
-    # Iterate over starred rows
-    for index, row in starred_rows.iterrows():
-
-        source_field = row['SourceFieldName']
-
-        if source_field not in inputdata.columns:
-
-            missing_fields.append(source_field)
-
-            missed_source_field_functions.append(row['Mandatory'])
-        
-        # Check if any value is missing in the mapped column
-        elif inputdata[source_field].isnull().any():
-
-            missing_value_fields.append(source_field)
-
-            missed_source_field_functions.append(row['Mandatory'])
-
-    # Construct error messages for missing columns and missing column values
-    error_msgs = []
-
-    if missing_fields:
-
-        missing_fields_str = ', '.join(missing_fields)
-
-        missed_source_field_functions_str = ', '.join(set(missed_source_field_functions))
-        
-        error_msgs.append(f"Missing Input Column: {missing_fields_str}")
-
-    if missing_value_fields:
-
-        missing_value_fields_str = ', '.join(missing_value_fields)
-
-        missed_source_field_functions_str = ', '.join(set(missed_source_field_functions))
-        
-        error_msgs.append(f"Missing Input Column Values: {missing_value_fields_str}")
-
-    # Raise error with constructed error messages
-    if error_msgs:
-
-        exceptions.append('\n'.join(error_msgs))
-   
-    return exceptions
-
-def IntegrityCheck(tableName,processCode,themeName,inputdata,themedata,orgID,transactionType,transactionID):
-
-    exceptions=[]
-
-    # Validate Mandatory mapping
-    exceptions = validate_source_field_function(themedata, inputdata, exceptions)
-
-    exceptions = validate_column_format(inputdata, themedata, exceptions)
-
-    if len(exceptions)>0:
-
-        exceptions = ", ".join(exceptions)
-
-        logger.info(f"Error: {exceptions} in {themeName}")
-
-        DynamoLogger(txnID=str(pd.Timestamp.now().value),
-                     process="PDT",
-                     operation="PUT",
-                     tableName=tableName,
-                     attributes={"Stage":"IntegrityCheck",
-                                 "OrgID":orgID,
-                                 "TransactionID":transactionID,
-                                 "TransactionType":transactionType,
-                                 "ProcessCode":processCode,
-                                 "ThemeName":themeName,
-                                 "Error":exceptions
-                                 })
-        raise ("Integrity Check Issue: "+exceptions) 
-    
-    else:
-        
-        logger.info("Integrity Check Passed in "+themeName)
-        return True
-
-def CopySameSourceColumn(themeData, data, patternExtFields):
-    
-    final_df = pd.DataFrame(index=data.index)  # maintain same number of rows
-
-    # Filter only standard (non-function) field mappings
-    standard_mappings = themeData[themeData["SourceFieldFunction"] == "NA"]
-
-    for _, row in standard_mappings.iterrows():
-        source_col = row["SourceFieldName"]
-        target_col = row["TargetFieldName"]
-
-        if source_col in data.columns:
-            final_df[target_col] = data[source_col]
-        else:
-            # Source column not found — create empty target column
-            final_df[target_col] = None
-
-    # Final target fields (only those that exist in final_df)
-    targetF = [x for x in themeData["TargetFieldName"].unique() if x in final_df.columns]
-    validPatternFields = [x for x in patternExtFields if x in final_df.columns]
-
-    return final_df[targetF + validPatternFields]
-
-def StandardProcessDataMap(data, themeData, metaInfo, exceptions):
-    "standard pdm function with case-insensitive handling."
-
-    # Normalize all column names in lowercase for comparison
-    data.columns = [col.lower() for col in data.columns]
-
-    themeData["SourceFieldFunction"].fillna(value="NA", inplace=True)
-
-    # Normalize key columns in themeData and metaInfo
-    themeData["OrginalSourceFieldName"] = themeData["SourceFieldName"]
-    themeData["SourceFieldName"] = themeData["SourceFieldName"].str.lower()
-    themeData["TargetFieldName"] = themeData["TargetFieldName"].str.lower()
-
-    metaInfo["ShortText"] = metaInfo["ShortText"].str.lower()
-    metaInfo["Domain"] = metaInfo["Domain"].str.lower()
-
-    sourceFields = list(set(themeData.loc[themeData["SourceFieldFunction"] == "NA", "SourceFieldName"]))
-    sourceFields = [x for x in sourceFields if x not in ["pk", "sk", "header", "ver", "internalid"]]
-
-    patternExtFields = []
-
-    targetToSourceMapping = {}
-    for i in themeData.index:
-        tgt = themeData.at[i, "TargetFieldName"]
-        src = themeData.at[i, "SourceFieldName"]
-        if tgt not in targetToSourceMapping and src in data.columns:
-            targetToSourceMapping[tgt] = src
-
-    srcToTargetMapping = {v: u for u, v in targetToSourceMapping.items()}
-
-    # 2. Parsing date and datetimes
-    dateTimeParmsRX = re.compile(r"[A-Za-z]+")
-
-    stdDateTimeDF=ReadS3(key="configs/Date_Format_StdChart.csv",bucket='csvoistorage')
-
-    dateCols=list(metaInfo.loc[metaInfo["DataType"].isin(["DATE","DATETIME"]),"Domain"])
-
-        # Datetime Std Internal and External Mapping
-
-    dateTimeMapping={stdDateTimeDF["External Mapping"][i]:stdDateTimeDF["Internal Mapping"][i]
-    for i in stdDateTimeDF.index}
-
-    dateCols = list(set(
-    targetToSourceMapping[x] 
-    for x in dateCols 
-    if x in targetToSourceMapping and targetToSourceMapping[x] in data.columns
-        ))
-
-    for dateCol in dateCols:
-
-        format=list(themeData.loc[themeData["SourceFieldName"]==dateCol,"DataFormat"])[0]
-
-        formatName=list(metaInfo.loc[metaInfo["Domain"]==srcToTargetMapping[dateCol],"DataType"])[0]
-
-        internalFormat=format
-
-        dateTimeAttrs=dateTimeParmsRX.findall(internalFormat)
-
-        for attr in dateTimeAttrs:
-
-            internalFormat=internalFormat.replace(attr,dateTimeMapping[attr])      
-
+        # Safely convert datetime columns to string
         try:
+            datetime_cols = df.select_dtypes(
+                include=["datetime", "datetimetz", "datetime64[ns]"]
+            ).columns
 
-            data[dateCol]=pd.to_datetime(data[dateCol],format=internalFormat)
+            for col in datetime_cols:
+                df[col] = df[col].astype(str)
+        except Exception:
+            pass
 
-            if formatName=="DATE":
+        return df
 
-                data[dateCol]=[str(x)[:10] for x in list(data[dateCol])]
+    except Exception as e:
+        return pd.DataFrame(), {"Status": "Error", "Message": str(e)}
+
+def update_transaction_log(conn,txnID, operation, attributes={}):
+
+    "PostgreSQL Transaction Log Interface"
+
+    print()
+
+    cursor = conn.cursor()
+
+    if operation == "StatusCheck":
+
+        cursor.execute(
+            "SELECT * FROM transaction_log WHERE transactionid = %s",
+            (txnID,)
+        )
+        resp = cursor.fetchone()
+
+    elif operation in ["PUT", "ADD"]:
+
+        cursor.execute(
+            "SELECT id FROM transaction_log WHERE transactionid = %s",
+            (txnID,)
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+
+            cursor.execute(
+                """
+                UPDATE transaction_log
+                SET status    = %s,
+                    createdat = %s
+                WHERE transactionid = %s
+                """,
+                (attributes["Status"], datetime.now().isoformat(), txnID)
+            )
+
+        else:
+
+            cursor.execute(
+                """
+                INSERT INTO transaction_log (
+                    transactionid, status, createdat,
+                    tenantid, orgid, datakey
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    txnID,
+                    attributes["Status"],
+                    datetime.now().isoformat(),
+                    attributes["TenantID"],
+                    attributes["OrgID"],
+                    DataKey
+                )
+            )
+
+        resp = {"Status": attributes["Status"], "TransactionID": txnID}
+
+    elif operation == "CREATE":
+
+        cursor.execute(
+            """
+            INSERT INTO transaction_log (
+                transactionid, status, createdat,
+                tenantid, orgid, datakey
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                txnID,
+                attributes["Status"],
+                datetime.now().isoformat(),
+                attributes["TenantID"],
+                attributes["OrgID"],
+                DataKey
+            )
+        )
+
+        resp = {"Status": attributes["Status"], "TransactionID": txnID}
+        
+    else:
+
+        resp = {"Status": "Error", "Message": f"Unsupported operation: {operation}"}    
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return resp
+
+def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operation, conn=None, cur=None):
+
+    # Replace NaN/NaT with None
+    df = df.where(pd.notna(df), None)
+    df = df.applymap(
+        lambda x: (
+            None if pd.isna(x) or (isinstance(x, str) and x.strip() == "NaT") else x
+        )
+    )
+
+    # Convert datetime64[ns] to native Python datetime for Postgres
+    for col in df.select_dtypes(include=["datetime64[ns]"]).columns:
+        df[col] = df[col].apply(lambda x: x.to_pydatetime() if x is not None else None)
+
+    created_connection = False
+    try:
+        if conn is None or cur is None:
+            conn = ec2confic(tenantID)
+            cur = conn.cursor()
+            created_connection = True
+
+        if operation.lower() == 'delete':
+            pk_values = [tuple(row[pk] for pk in pk_keys) for _, row in df.iterrows()]
+            delete_sql = f"DELETE FROM {table_name} WHERE " + " AND ".join([f"{pk} = %s" for pk in pk_keys])
+            cur.executemany(delete_sql, pk_values)
+            conn.commit()
+            response = f"✅ Deleted {len(pk_values)} record(s) from {table_name}"
+
+        elif operation.lower() == 'insert':
+            cols = ', '.join(df.columns)
+
+            def clean_cell(cell):
+                if cell is pd.NaT or pd.isna(cell) or str(cell).strip() in ('NaT', 'nan', 'NaN', 'None'):
+                    return None
+                if isinstance(cell, pd.Timestamp):
+                    return cell.to_pydatetime()
+                return cell
+
+            def clean_row(row):
+                return tuple(clean_cell(cell) for cell in row)
             
-            else:
+            #df = df.drop_duplicates(subset=pk_keys, keep='last')
 
-                data[dateCol]=[str(x) for x in list(data[dateCol])]
+            values = [clean_row(row) for row in df.itertuples(index=False)]
 
-        except Exception as E:
+            dup_rows = df[df.duplicated(subset=pk_keys, keep=False)]
+            if not dup_rows.empty:
+                print("⚠️ Duplicate PK rows found before insert:")
+                print(dup_rows)
+            
+            # UPSERT: insert or update if PK conflict
+            update_cols = [col for col in df.columns if col not in pk_keys]
+            set_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in update_cols])
+            
+            #conflict_clause = f"ON CONFLICT ({', '.join(pk_keys)}) DO UPDATE SET {set_clause}"
+            conflict_clause = f"ON CONFLICT ON CONSTRAINT {table_name}_pkey DO UPDATE SET {set_clause}"
 
-            exceptions.append("Date Format Issue [column:%s]; [PDM:%s]; [Exact Error:%s]"%(dateCol,str(format),E))
+            insert_sql = f"INSERT INTO {table_name} ({cols}) VALUES %s {conflict_clause}"
 
-            return exceptions
+            execute_values(cur, insert_sql, values)
+            conn.commit()
+            response = f"✅ Upserted {len(df)} rows into '{table_name}'"
 
-    strCols = list(metaInfo.loc[metaInfo["DataType"].isin(["VARCHAR"]), "Domain"])
+        elif operation.lower() == 'select':
+            sel_pk_keys=pk_keys.copy()
+            sel_pk_keys.append('themename')
+            sel_pk_keys.remove('sno')
+            pk_values = list({
+                tuple(row[pk] for pk in sel_pk_keys)
+                for _, row in df.iterrows()
+            })
+            where_clause = " AND ".join([f"{pk} = %s" for pk in sel_pk_keys])
+            select_sql = f"SELECT * FROM {table_name} WHERE {where_clause}"
 
-    strCols = list(
-        set(
-            targetToSourceMapping[x]
-            for x in strCols
-            if x in targetToSourceMapping and targetToSourceMapping[x] in data.columns
-        )
-    )
+            all_rows = []
+            for values in pk_values:
+                cur.execute(select_sql, values)
+                rows = cur.fetchall()
+                all_rows.extend(rows)
 
-    for strCol in strCols:
-        data[strCol] = [str(x) if pd.notna(x) else x for x in list(data[strCol])]
+            columns = [desc[0] for desc in cur.description]
+            response = pd.DataFrame(all_rows, columns=columns)
+            if 'header' in response.columns:
+                response.drop(['header'], axis=1, inplace=True)
 
-    print("Exceptions:", exceptions)
-    print("Field Mapping Over")
+        elif operation.lower() == 'update':
+            set_cols = [col for col in df.columns if col not in pk_keys]
+            set_clause = ", ".join([f"{col} = %s" for col in set_cols])
+            where_clause = " AND ".join([f"{pk} = %s" for pk in pk_keys])
+            update_sql = f"UPDATE {table_name} SET {set_clause} WHERE {where_clause}"
 
-    # 3. Executing sourcefield functions
-    fieldsTarget = list(themeData.loc[themeData["SourceFieldFunction"] != "NA", "TargetFieldName"])
-    fieldsFunc = list(themeData.loc[themeData["SourceFieldFunction"] != "NA", "SourceFieldName"])
-    fieldsFunc = [x for x in fieldsFunc if pd.isnull(x) == False]
-
-    data=CopySameSourceColumn(themeData, data, patternExtFields)
-
-    for targetField in fieldsTarget:
-        fieldFunc = list(themeData.loc[themeData["TargetFieldName"] == targetField, "OrginalSourceFieldName"])[0]
-        exp = list(themeData.loc[themeData["TargetFieldName"] == targetField, "SourceFieldFunction"])[0]
-
-        if exp == "CONS":
-            data[targetField] = fieldFunc
-
-        elif "CONCAT" in exp:
-            exp = exp.replace("CONCAT(", "").replace(")", "")
-            colsUse = [x for x in list(data.columns) if x in exp]
-            colsUse = list(sorted(colsUse, key=len, reverse=True))
-            for colUse in colsUse:
-                exp = exp.replace(colUse + "+", f"data['{colUse}']+")
-                exp = exp.replace("+" + colUse, f"+data['{colUse}']")
-            data[targetField] = eval(exp)
-
-        elif "EXP" in exp:
-            exp = exp.replace("EXP(", "").replace(")", "")
-            colsUse = [x for x in list(data.columns) if x in exp]
-            colsUse = list(sorted(colsUse, key=len, reverse=True))
-            for colUse in colsUse:
-                exp = exp.replace(colUse, f"data['{colUse}']")
-            data[targetField] = eval(exp)
-
-        else:
-            data[targetField] = "Function Yet To Be Defined."
-
-    return data
-
-def StandardProcessDataMapV1(data, themeData, metaInfo, exceptions):
-    "standard pdm function with case-insensitive handling."
-
-    # Normalize all column names in lowercase for comparison
-    data.columns = [col.lower() for col in data.columns]
-
-    themeData["SourceFieldFunction"].fillna(value="NA", inplace=True)
-
-    # Normalize key columns in themeData and metaInfo
-    themeData["OrginalSourceFieldName"] = themeData["SourceFieldName"]
-    themeData["TargetFieldName"] = themeData["TargetFieldName"].str.lower()
-
-    # Conditionally update SourceFieldName using TargetFieldName
-    condition = themeData["SourceFieldName"].notna() & (themeData["SourceFieldFunction"] != "CONS")
-    themeData.loc[condition, "SourceFieldName"] = themeData.loc[condition, "TargetFieldName"]
-
-    metaInfo["ShortText"] = metaInfo["ShortText"].str.lower()
-    metaInfo["Domain"] = metaInfo["Domain"].str.lower()
-
-    sourceFields = list(set(themeData.loc[themeData["SourceFieldFunction"] == "NA", "SourceFieldName"]))
-    sourceFields = [x for x in sourceFields if x not in ["pk", "sk", "header", "ver", "internalid"]]
-
-    patternExtFields = []
-
-    targetToSourceMapping = {}
-    for i in themeData.index:
-        tgt = themeData.at[i, "TargetFieldName"]
-        src = themeData.at[i, "SourceFieldName"]
-        if tgt not in targetToSourceMapping and src in data.columns:
-            targetToSourceMapping[tgt] = src
-
-    print("Exceptions:", exceptions)
-    print("Field Mapping Over")
-
-    # 3. Executing sourcefield functions
-    fieldsTarget = list(themeData.loc[themeData["SourceFieldFunction"] != "NA", "TargetFieldName"])
-    fieldsFunc = list(themeData.loc[themeData["SourceFieldFunction"] != "NA", "SourceFieldName"])
-    fieldsFunc = [x for x in fieldsFunc if pd.isnull(x) == False]
-
-    data=CopySameSourceColumn(themeData, data, patternExtFields)
-
-    for targetField in fieldsTarget:
-    
-        fieldFunc = list(themeData.loc[themeData["TargetFieldName"] == targetField, "OrginalSourceFieldName"])[0]
-        exp = list(themeData.loc[themeData["TargetFieldName"] == targetField, "SourceFieldFunction"])[0]
-
-        if exp == "CONS":
-            data[targetField] = fieldFunc
-
-        elif "CONCAT" in exp:
-            exp = exp.replace("CONCAT(", "").replace(")", "")
-            colsUse = [x for x in list(data.columns) if x in exp]
-            colsUse = list(sorted(colsUse, key=len, reverse=True))
-            for colUse in colsUse:
-                exp = exp.replace(colUse + "+", f"data['{colUse}']+")
-                exp = exp.replace("+" + colUse, f"+data['{colUse}']")
-            data[targetField] = eval(exp)
-
-        elif "EXP" in exp:
-            exp = exp.replace("EXP(", "").replace(")", "")
-            colsUse = [x for x in list(data.columns) if x in exp]
-            colsUse = list(sorted(colsUse, key=len, reverse=True))
-            for colUse in colsUse:
-                exp = exp.replace(colUse, f"data['{colUse}']")
-            data[targetField] = eval(exp)
-
-        else:
-            data[targetField] = "Function Yet To Be Defined."
-
-    return data
-
-def fill_numeric_nulls_from_themedata(inputdata, themedata):
-
-    # normalize themedata target field names
-    themedata["TargetFieldName_norm"] = (
-        themedata["TargetFieldName"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-    # create mapping: target field name -> datatype
-    target_dtype_map = dict(
-        zip(
-            themedata["TargetFieldName_norm"],
-            themedata["TargetFieldDataType"].astype(str).str.strip().str.upper()
-        )
-    )
-
-    for col in inputdata.columns:
-        col_norm = str(col).strip().lower()
-
-        if col_norm in target_dtype_map:
-            target_dtype = target_dtype_map[col_norm]
-
-            if target_dtype in ["FLOAT", "INTEGER"]:
-                inputdata[col] = inputdata[col].replace(
-                    ["", " ", "None", "none", "NULL", "null", "NaN", "nan", None],
-                    np.nan
+            def clean_update_row(row):
+                return tuple(
+                    [None if pd.isna(row[col]) else row[col] for col in set_cols] +
+                    [None if pd.isna(row[pk]) else row[pk] for pk in pk_keys]
                 )
 
-                inputdata[col] = inputdata[col].fillna(0)
+            update_values = [clean_update_row(row) for _, row in df.iterrows()]
+            cur.executemany(update_sql, update_values)
+            conn.commit()
+            response = f"✅ Updated {len(update_values)} record(s) in '{table_name}'"
 
-                if target_dtype == "INTEGER":
-                    inputdata[col] = pd.to_numeric(inputdata[col], errors="coerce").fillna(0).astype(int)
+    finally:
+        if created_connection:
+            if cur: cur.close()
+            if conn: conn.close()
 
-                elif target_dtype == "FLOAT":
-                    inputdata[col] = pd.to_numeric(inputdata[col], errors="coerce").fillna(0).astype(float)
+    return response
 
-    # optional: remove helper column
-    themedata.drop(columns=["TargetFieldName_norm"], inplace=True, errors="ignore")
-
-    return inputdata
-
-def SourceFieldNameToTargetFieldName(productCode, tenantID, processCode, themeName, input, orgID, transactionType, transactionID, Stage):
-
-    exceptions=[]
-    
-    bucketName = 'dt-' + tenantID.lower() + suffixS3.lower()
-    tableName = tenantID+suffixDb
-
-    themedata = ThemeDataV2(productCode,tenantID,processCode,themeName)
-
-    processdata = ProcessDefn(productCode,processCode,tenantID,themeName)
-
-    # Read Data
-    if isinstance(input,pd.DataFrame):
-
-        inputdata=input 
-
-    else:          
-
-        try:
-
-            inputdata = ReadS3(key=input, bucket=bucketName)
-
-        except Exception as e:    
-
-            exceptions.append("Failed/File Content Not Matching With The Extension:"+input)
-            raise Exception(exceptions)
-
-    if Stage != "3":   
-
-        IntegrityCheck(tableName,processCode,themeName,inputdata,themedata,orgID,transactionType,transactionID)
-        
-        inputdata = StandardProcessDataMap(inputdata, themedata, processdata, exceptions)   
-
-    else:
-
-        inputdata = StandardProcessDataMapV1(inputdata, themedata, processdata, exceptions) 
-
-    inputdata = inputdata.replace('', None) 
-
-    inputdata = fill_numeric_nulls_from_themedata(inputdata, themedata)   
-
-    if isinstance(inputdata,pd.DataFrame) and Stage == "1" and processCode == "BT3I":
-    
-        inputdata['uuid'] = [str(uuid.uuid4()) for _ in range(len(inputdata))]
-
-        return inputdata
-    
-    else : 
-
-        return inputdata
-    
 ########################################### AI/ML Functions ###########################################
 
 def ReadS3(key,bucket,readTxtTsv=False):
@@ -810,54 +468,128 @@ def ReadS3(key,bucket,readTxtTsv=False):
 
         return fileDF
 
-def get_ai_model(bucket,api_key,project_id,location,model_name,system_instruction):
+def get_excel_date_format_from_s3(bucket, key):
+
+    response = s3.get_object(
+        Bucket=bucket,
+        Key=key
+    )
+
+    excel_data = BytesIO(
+        response["Body"].read()
+    )
+
+    workbook = load_workbook(
+        excel_data,
+        data_only=False
+    )
+
+    sheet = workbook.active
+
+    for row in sheet.iter_rows():
+
+        for cell in row:
+
+            value = cell.value
+
+            if isinstance(value, datetime):
+
+                fmt = cell.number_format.lower()
+
+                fmt = fmt.replace("-", "/")
+                fmt = fmt.replace(".", "/")
+
+                if "dd" in fmt and "mm" in fmt and "yyyy" in fmt:
+
+                    if fmt.index("dd") < fmt.index("mm"):
+                        return "DD/MM/YYYY"
+
+                    else:
+                        return "MM/DD/YYYY"
+
+                elif "yyyy" in fmt:
+                    if fmt.index("yyyy") < fmt.index("mm"):
+                        return "YYYY/MM/DD"
+
+    return None    
+
+def get_ai_client(bucket,project_id,location):
 
     key = "VertexAI/credential.json"
-    response=s3.get_object(Bucket=bucket,Key=key)
+    # Fetch and load the service account JSON from S3
+    response = s3.get_object(Bucket=bucket, Key=key)
     raw_json = response["Body"].read().decode("utf-8")
     sa_info = json.loads(raw_json)
-    credentials = service_account.Credentials.from_service_account_info(sa_info)
-
-    vertexai.init(
-    project=project_id,
-    location=location,
-    api_key=api_key,
-    credentials=credentials
-    )
-    model = GenerativeModel(model_name,
-                                
-        system_instruction=[system_instruction])
     
-    return model
+    # 1. Load the core credentials from the service account info
+    base_credentials = service_account.Credentials.from_service_account_info(sa_info)
+    
+    # 2. FIX: Explicitly grant the cloud-platform scope required by the GenAI SDK
+    scoped_credentials = base_credentials.with_scopes(
+        ['https://www.googleapis.com/auth/cloud-platform']
+    )
 
-def calling_aiV2(model, content):
+    # 3. Pass the properly scoped credentials into the Client
+    client = genai.Client(
+        vertexai=True,
+        project=project_id,
+        location=location,
+        credentials=scoped_credentials
+    )
+    
+    return client
 
-    response = model.generate_content(content)
+def calling_aiV2(client, model_name, system_instruction, content):
 
-    response = response.text  
+    try:
+        # Define the system instructions using the GenerateContentConfig object
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction
+        )
+        
+        # Call the content generation using the modern SDK layout
+        response = client.models.generate_content(
+            model=model_name,
+            contents=content,
+            config=config
+        )
+        
+        return response.text
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
 
-    return response
-
-def transaction_identifier(bucket,DataKey,api_key,project_id,location,model_name):
+def transaction_identifier(bucket,DataKey,project_id,location,model_name,commondb_conn):
 
     promptKey = "Prompt/Vertex ai/classification.txt"
 
     system_instruction = "You are an Advanced Financial Controller specialized in Intelligent Document Processing (IDP). You process financial data with 100% precision, mapping input to the correct database schema."
 
-    model = get_ai_model(bucket,api_key,project_id,location,model_name,system_instruction)
+    client = get_ai_client(bucket,project_id,location)
 
     data = ReadS3(key=DataKey,bucket=bucket)
 
     prompt_data = ReadS3(key=promptKey,bucket=bucket)
 
-    content = f"""
-        {prompt_data}
+    query ='''
+        select * from processcodes_knowledge
+        '''
+    
+    knowledge_data = fetch_data_from_db(commondb_conn,query)
+    
+    knowledge_dict = knowledge_data.to_dict(orient = "records")
+    
+    data_str = data.head(3).to_string(index=False)
+    
+    full_prompt = f"{prompt_data}{knowledge_dict}"
 
-        ### Input Data (CSV):
-        {data}
+    content = f"""
+        {full_prompt}
+
+        ### Input Data:
+        {data_str}
         """
 
-    response = calling_aiV2(model, content)
+    response = calling_aiV2(client, model_name, system_instruction, content)
 
     cleaned = response.strip('`')          # removes backticks
     cleaned = cleaned.replace('json\n', '')  # removes 'json' label
@@ -868,25 +600,413 @@ def transaction_identifier(bucket,DataKey,api_key,project_id,location,model_name
 
 def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName):
     
-    res = SourceFieldNameToTargetFieldName(ProductName, TenantID, ProcessCode, ThemeName, DataKey, OrgID, TransactionType, TransactionID, Stage='1')
-    
-    
+    res = ""
 
+def Metadata_Generator(transaction_id,dataKey,orgID,transactionType):
+    
+    conn = ec2confic(tenantID)
+    cursor = conn.cursor()
+
+    bucket='dt-'+TenantID.lower()+suffixS3.lower()
+
+    api_key = "AIzaSyCS3vVTFR26djNgUlyxuP6FdQLGqaOwFHo"
+
+    project_id = "datatwinai-dev"
+
+    location = "us-central1"
+
+    model_name = "gemini-2.5-flash"
+
+    system_instruction = """
+    You are an enterprise ERP metadata generator.
+    """
+
+    model = get_ai_model(
+        bucket,
+        api_key,
+        project_id,
+        location,
+        model_name,
+        system_instruction
+    )
+
+    df = ReadS3(
+        key=dataKey,
+        bucket=bucket
+    )
+
+
+    transaction_type = transactionType
+
+    date_format = get_excel_date_format_from_s3(
+        bucket,
+        dataKey
+    )
+
+    if date_format:
+     date_format = date_format.upper()
+
+    cursor.execute("""
+        SELECT DISTINCT process_cd
+        FROM process
+        ORDER BY process_cd
+    """)
+
+    existing_codes = [
+        row[0]
+        for row in cursor.fetchall()
+    ]
+
+    print(existing_codes)
+
+    promptKey = "Prompt/Vertex ai/ERP_Generator.txt"
+    raw_prompt = ReadS3(key=promptKey, bucket=bucket)
+
+    prompt = raw_prompt.replace("{existing_codes}", str(existing_codes)) \
+                       .replace("{date_format}", str(date_format)) \
+                       .replace("{transaction_type}", str(transaction_type)) \
+                       .replace("{df.head(3).to_string(index=False)}", df.head(3).to_string(index=False))
+
+    try:
+        response = calling_aiV2(
+            model,
+            prompt
+        )
+    except Exception:
+        raise Exception("Gemini Error")
+
+    cleaned = response.strip('`')
+
+    cleaned = cleaned.replace(
+        'json\n',
+        ''
+    )
+
+    try:
+        ai_outputs = json.loads(cleaned)
+    except Exception:
+        raise Exception("JSON Parse Error")
+
+    final_json_list = []
+
+    theme_metadata_list = []
+
+    for ai_output in ai_outputs:
+
+        process_code = ai_output["ProcessCode"]
+        if process_code in existing_codes:
+            raise Exception(
+                f"Duplicate ProcessCode generated: {process_code}"
+            )
+        process_name = ai_output["ProcessName"]
+        process_knowledge = ai_output["ProcessKnowledge"]
+        short_text = ai_output["ShortText"]
+        data_type = ai_output["DataType"]
+        lde = ai_output["LDE"]
+        indexing = ai_output["Indexing"]
+        source_field_name = ai_output["SourceFieldName"]
+
+        final_json = {
+            "process_cd": process_code,
+            "process_name": process_name,
+            "process_knowledge": process_knowledge,
+            "short_text": short_text,
+            "domain": short_text,
+            "name": f"{process_code}_{short_text}",
+            "label": f"{process_code}_{short_text}",
+            "data_type": data_type,
+            "default_value": None,
+            "lde": lde,
+            "indexing": indexing,
+            "mandatory": None,
+            "derive_formula": None,
+            "predefined_list": None,
+            "acronym": f"{process_code}_{short_text}"
+        }
+
+        theme_metadata = {
+
+            "ProcessCode": process_code,
+            "ThemeName": process_name,
+            "TargetFieldDataType": data_type,
+            "LDE": lde,
+            "TargetFieldName": short_text,
+            "SourceFieldName": source_field_name,
+            "Mandatory": None,
+            "DataFormat": (
+                date_format
+                if (
+                    "date" in source_field_name.lower()
+                    or
+                    "date" in short_text.lower()
+                    or
+                    data_type == "DATE"
+                )
+                else None
+            )
+        }
+
+        final_json_list.append(final_json)
+
+        theme_metadata_list.append(theme_metadata)
+
+    print(
+        json.dumps(
+            final_json_list,
+            indent=4
+        )
+    )
+
+    print(
+        json.dumps(
+            theme_metadata_list,
+            indent=4
+        )
+    )
+
+    return {
+        "transaction_id": transaction_id,
+        "final_json_list": final_json_list,
+        "theme_metadata_list": theme_metadata_list
+    }
+  
+def handle_new_process_metadata(tenantID, bucket, DataKey, response1, project_id,location, model_name, commondb_conn, commondb_cursor, tenant_conn,tenant_cursor):
+    
+    transaction_type = response1["TransactionType"]
+    
+    promptKey = "Prompt/Vertex ai/ERP_Generator.txt"
+
+    system_instruction = ""
+
+    client = get_ai_client(bucket,project_id,location)
+
+    data = ReadS3(key=DataKey,bucket=bucket)
+
+    prompt_data = ReadS3(key=promptKey,bucket=bucket)
+    
+    query ='''
+        SELECT DISTINCT process_cd
+        FROM process
+        ORDER BY process_cd
+        '''
+    existing_codes = fetch_data_from_db(commondb_conn,query)
+    
+    content = prompt_data.replace("{existing_codes}", str(existing_codes)) \
+                       .replace("{transaction_type}", str(transaction_type)) \
+                       .replace("{df.head(3).to_string(index=False)}", data.head(3).to_string(index=False))
+                       
+    response = calling_aiV2(client, model_name, system_instruction, content)    
+    
+    cleaned = response.strip('`')
+
+    cleaned = cleaned.replace(
+        'json\n',
+        ''
+    )
+
+    try:
+        ai_outputs = json.loads(cleaned)
+    except Exception:
+        raise Exception("JSON Parse Error")
+
+    process_metadata_list = []
+
+    theme_metadata_list = []
+
+    for ai_output in ai_outputs:
+
+        process_code = ai_output["ProcessCode"]
+        if process_code in existing_codes:
+            raise Exception(
+                f"Duplicate ProcessCode generated: {process_code}"
+            )
+        process_name = ai_output["ProcessName"]
+        process_knowledge = ai_output["ProcessKnowledge"]
+        short_text = ai_output["ShortText"]
+        data_type = ai_output["DataType"]
+        lde = ai_output["LDE"]
+        indexing = ai_output["Indexing"]
+        source_field_name = ai_output["SourceFieldName"]
+        date_format = ai_output["DateFormat"]
+
+        process_meta = {
+            "product_cd": "DTFOWS",
+            "process_cd": process_code,
+            "process_name": process_name,
+            "process_knowledge": process_knowledge,
+            "short_text": short_text,
+            "domain": short_text,
+            "name": f"{process_code}_{short_text}",
+            "label": f"{process_code}_{short_text}",
+            "data_type": data_type,
+            "default_value": None,
+            "lde": lde,
+            "indexing": indexing,
+            "mandatory": None,
+            "derive_formula": None,
+            "predefined_list": None,
+            "acronym": f"{process_code}_{short_text}",
+            "created_by": "AI",
+            "modified_by": "AI",
+            "created_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "inprd_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        theme_metadata = {
+
+            "created_date": datetime.now().strftime("%Y-%m-%d"),
+            "productcode": "DTFOWS",
+            "processcode": process_code,
+            "themename": process_name,
+            "targetfielddatatype": data_type,
+            "lde": lde,
+            "targetfieldname": short_text,
+            "sourcefieldname": source_field_name,
+            "mandatory": None,
+            "sourcefieldfunction": None,
+            "DataFormat": date_format,
+            "created_by": "AI",
+            "modified_by": "AI",
+            "created_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "inprd_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        process_metadata_list.append(process_meta)
+        theme_metadata_list.append(theme_metadata)
+        
+    process_df = pd.DataFrame(process_metadata_list)    
+    theme_df = pd.DataFrame(theme_metadata_list)
+        
+    execute_data_operation_on_postgres(tenantID, process_df, "process", ["product_cd","process_cd","short_text"], 'insert', conn=commondb_conn, cur=commondb_cursor)
+    execute_data_operation_on_postgres(tenantID, theme_df, "theme_mapping", ["productcode","processcode","themename","targetfieldname"], 'insert', conn=tenant_conn, cur=tenant_cursor)
+    
+    return str(ai_output["ProcessCode"]), str(ai_output["ProcessName"])
+    
+def handle_existing_process_metadata(tenantID, bucket, DataKey, response1, project_id,location, model_name, commondb_conn, commondb_cursor, tenant_conn,tenant_cursor):
+    
+    ProcessCode = response1["ProcessCode"]
+    transaction_type = response1["TransactionType"]
+    
+    promptKey = "Prompt/Vertex ai/prompt.EP.txt"
+
+    system_instruction = ""
+
+    client = get_ai_client(bucket,project_id,location)
+
+    data = ReadS3(key=DataKey,bucket=bucket)
+
+    prompt_data = ReadS3(key=promptKey,bucket=bucket)
+    
+    query =f'''
+        SELECT DISTINCT themename
+        FROM theme_mapping
+        where processcode = '{ProcessCode}'
+        ORDER BY themename
+        '''
+    existing_themenames = fetch_data_from_db(tenant_conn,query)
+    
+    query =f'''
+        SELECT DISTINCT short_text, data_type
+        FROM process
+        where process_cd = '{ProcessCode}'
+        ORDER BY short_text
+        '''
+    existing_short_texts = fetch_data_from_db(commondb_conn,query)    
+    
+    content = prompt_data.replace("{existing_TargetFieldName}", str(existing_short_texts)) \
+                       .replace("{existing_theme_names_list}", str(existing_themenames)) \
+                       .replace("{sample_df_data}", data.head(3).to_string(index=False)) \
+                       .replace("{transactionType}", str(transaction_type)) \
+                       .replace("{process_code}", str(ProcessCode))    
+                       
+    response = calling_aiV2(client, model_name, system_instruction, content)    
+    
+    cleaned = response.strip('`')
+
+    cleaned = cleaned.replace(
+        'json\n',
+        ''
+    )
+
+    try:
+        ai_outputs = json.loads(cleaned)
+    except Exception:
+        raise Exception("JSON Parse Error")
+
+    theme_metadata_list = []    
+    
+    for ai_output in ai_outputs:
+
+        process_code = ai_output["ProcessCode"]
+        theme_name = ai_output["ThemeName"]
+        target_field_dataType = ai_output["TargetFieldDataType"]
+        lde = ai_output["LDE"]
+        target_fieldname = ai_output["TargetFieldName"]
+        source_field_name = ai_output["SourceFieldName"]
+        date_format = ai_output["DateFormat"]
+
+        theme_metadata = {
+
+            "created_date": datetime.now().strftime("%Y-%m-%d"),
+            "productcode": "DTFOWS",
+            "processcode": process_code,
+            "themename": theme_name,
+            "targetfielddatatype": target_field_dataType,
+            "lde": lde,
+            "targetfieldname": target_fieldname,
+            "sourcefieldname": source_field_name,
+            "mandatory": None,
+            "sourcefieldfunction": None,
+            "DataFormat": date_format,
+            "created_by": "AI",
+            "modified_by": "AI",
+            "created_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "inprd_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        theme_metadata_list.append(theme_metadata)
+           
+    theme_df = pd.DataFrame(theme_metadata_list)
+        
+    execute_data_operation_on_postgres(tenantID, theme_df, "theme_mapping", ["productcode","processcode","themename","targetfieldname"], 'insert', conn=tenant_conn, cur=tenant_cursor)
+    
+    return str(ai_output["ThemeName"])
+    
 def Job_Handler():
 
     bucket='dt-'+TenantID.lower()+suffixS3.lower()
     
-    api_key = "AIzaSyCS3vVTFR26djNgUlyxuP6FdQLGqaOwFHo"
     project_id = "datatwinai-dev"
     location = "us-central1"
-    model_name = "gemini-2.0-flash-001"
+    model_name = "gemini-2.5-flash"
     
-    #1.Logging Function Call
+    tenant_conn = ec2confic(TenantID)
+    commondb_conn = ec2confic("DataTwin_DB")
     
-    #2.Identifying Transaction type using AI
-    #response1 = transaction_identifier(bucket,DataKey,api_key,project_id,location,model_name)
+    tenant_cursor = tenant_conn.cursor()
+    commondb_cursor = commondb_conn.cursor()
+    
+    # #1.Logging Function Call
+    # update_transaction_log(tenant_conn, TransactionID, operation="PUT", attributes={"Status": "Started", "TenantID": TenantID, "OrgID": OrgID})
+    
+    # #2.Identifying Transaction type using AI
+    # response1 = transaction_identifier(bucket,DataKey,project_id,location,model_name,commondb_conn)
+    
+    # update_transaction_log(tenant_conn, TransactionID, operation="PUT",attributes={"ProcessCode" : response1["ProcessCode"], "TransactionType": response1["TransactionType"]})
+    
+    response1 = {'TransactionType': 'Contract', 'ProcessCode': 'BT3I'}
     
     #3.
+    if response1["ProcessCode"] == "New":
+
+        print("New Process Detected")
+        
+        processCd, themeName = handle_new_process_metadata(TenantID, bucket, DataKey, response1, project_id, location, model_name, commondb_conn, commondb_cursor, tenant_conn, tenant_cursor)
+
+    else:
+
+        print("Existing Process")
+        
+        themeName = handle_existing_process_metadata(TenantID, bucket, DataKey, response1, project_id, location, model_name, commondb_conn, commondb_cursor, tenant_conn, tenant_cursor)
     
     #4.
     
@@ -894,7 +1014,7 @@ def Job_Handler():
     ProcessCode = 'BT3I'
     ThemeName = 'POV1'
         
-    response2 = updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName)
+    #response2 = updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName)
 
 
 
@@ -906,6 +1026,6 @@ DataKey = "pretransaction/purchase-order-data.xlsx"
 TransactionID = "TRONDI00226",
 UserID = "dilip@datatwin.ai"
 
-def main():
-    
+
+if __name__ == "__main__":
     Job_Handler()
