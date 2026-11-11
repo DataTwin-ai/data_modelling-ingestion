@@ -1,0 +1,27 @@
+# Byte-compiled / Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Environment & Secrets
+.env
+.env.*
+infra/secrets/
+
+# Generated exports, data files & runtime logs
+exports/
+log/
+log_*.txt
+*.xlsx
+*.xls
+*.csv
+~$*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
