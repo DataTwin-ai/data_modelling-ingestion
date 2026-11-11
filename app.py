@@ -259,14 +259,172 @@ def fetch_data_from_db(db_conn, query):
         print(f"❌ Error in fetch_data_from_db: {e}")
         return pd.DataFrame()
 
+_TABLECODE_MIGRATION_DONE = False
+
+
+def _to_sql_col_name(name):
+    """Normalize an arbitrary Excel/CSV column header to a PostgreSQL-safe lowercase identifier."""
+    s = str(name or "").strip()
+    s = re.sub(r'[₹$€£]+', ' ', s)
+    s = re.sub(r'[^a-zA-Z0-9]+', '_', s).strip('_').lower()
+    if not s:
+        return ""
+    if s[0].isdigit():
+        s = f"col_{s}"
+    return s[:63]
+
+
+def _coerce_extra_column_series(series):
+    """Coerce currency/number strings to numeric dtype when all non-empty non-placeholder values are numeric."""
+    if pd.api.types.is_numeric_dtype(series):
+        return series
+
+    non_empty = []
+    for val in series:
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            continue
+        s = str(val).strip()
+        if s.lower() in ("", "-", "–", "—", "nil", "none", "nan", "nat", "null"):
+            continue
+        non_empty.append(s)
+
+    if not non_empty:
+        return series
+
+    numeric_vals = []
+    for s in non_empty:
+        cleaned = re.sub(r'[₹$€£,\s]', '', s)
+        if cleaned.startswith('(') and cleaned.endswith(')'):
+            cleaned = '-' + cleaned[1:-1]
+        try:
+            numeric_vals.append(float(cleaned))
+        except Exception:
+            # Contains non-numeric text: keep as text column safely
+            return series.apply(lambda v: None if (v is None or pd.isna(v) or str(v).strip() == '') else (v.strftime('%Y-%m-%d') if isinstance(v, pd.Timestamp) else str(v).strip()))
+
+    def _to_float_or_none(val):
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return np.nan
+        s = str(val).strip()
+        if s.lower() in ("", "-", "–", "—", "nil", "none", "nan", "nat", "null"):
+            return np.nan
+        cleaned = re.sub(r'[₹$€£,\s]', '', s)
+        if cleaned.startswith('(') and cleaned.endswith(')'):
+            cleaned = '-' + cleaned[1:-1]
+        try:
+            return float(cleaned)
+        except Exception:
+            return np.nan
+
+    return pd.to_numeric(series.apply(_to_float_or_none), errors='coerce')
+
+
+def _infer_sql_column_type(series, orig_dtype=None):
+    """Infer safe PostgreSQL column type ('DOUBLE PRECISION', 'TIMESTAMP', or 'TEXT') from values/dtype."""
+    if orig_dtype is not None:
+        if pd.api.types.is_numeric_dtype(orig_dtype):
+            return "DOUBLE PRECISION"
+        if pd.api.types.is_datetime64_any_dtype(orig_dtype):
+            return "TIMESTAMP"
+    if pd.api.types.is_numeric_dtype(series):
+        return "DOUBLE PRECISION"
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "TIMESTAMP"
+
+    non_null = [v for v in series if v is not None and not (isinstance(v, float) and np.isnan(v))]
+    if non_null:
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in non_null):
+            return "DOUBLE PRECISION"
+        if all(isinstance(v, (datetime, pd.Timestamp)) for v in non_null):
+            return "TIMESTAMP"
+    return "TEXT"
+
+
+def ensure_tablecode_on_all_tables(conn, backfill=True):
+    """Ensure every active_* and inactive_* table in the tenant schema has a 'tablecode' column."""
+    global _TABLECODE_MIGRATION_DONE
+    if _TABLECODE_MIGRATION_DONE or conn is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND (table_name LIKE 'active_%' OR table_name LIKE 'inactive_%')
+                ORDER BY table_name
+            """)
+            all_tables = [r[0] for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT table_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND column_name = 'tablecode'
+                  AND (table_name LIKE 'active_%' OR table_name LIKE 'inactive_%')
+            """)
+            has_tc = {r[0] for r in cur.fetchall()}
+
+            added = 0
+            for tbl in all_tables:
+                if tbl not in has_tc:
+                    cur.execute(f'ALTER TABLE "{tbl}" ADD COLUMN IF NOT EXISTS tablecode text;')
+                    added += 1
+
+            if backfill:
+                cur.execute("""
+                    SELECT table_name, array_agg(column_name)
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name LIKE 'active_%'
+                    GROUP BY table_name
+                """)
+                tbl_cols_map = {r[0]: set(r[1]) for r in cur.fetchall()}
+                for tbl in all_tables:
+                    if not tbl.startswith('active_'):
+                        continue
+                    cols = tbl_cols_map.get(tbl, set())
+                    candidates = []
+                    if 'financialnotereference' in cols:
+                        candidates.append("NULLIF(TRIM(financialnotereference::text), '')")
+                    if 'statementtype' in cols:
+                        candidates.append("NULLIF(TRIM(statementtype::text), '')")
+                    if 'themename' in cols:
+                        candidates.append("NULLIF(TRIM(themename::text), '')")
+                    if 'processcode' in cols:
+                        candidates.append("NULLIF(TRIM(processcode::text), '')")
+                    fallback_name = tbl[len('active_'):].upper().replace("'", "''")
+                    candidates.append(f"'{fallback_name}'")
+                    coalesce_expr = ", ".join(candidates)
+                    cur.execute(
+                        f'UPDATE "{tbl}" SET tablecode = COALESCE({coalesce_expr}) '
+                        f'WHERE tablecode IS NULL OR TRIM(tablecode::text) = \'\';'
+                    )
+            conn.commit()
+            if added:
+                clog(f"Added 'tablecode' column to {added} table(s) across tenant schema.", "SUCCESS")
+            _TABLECODE_MIGRATION_DONE = True
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        clog(f"Notice: ensure_tablecode_on_all_tables skipped: {e}", "WARNING")
+
+
 def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operation, conn=None, cur=None):
     
     if df is None or df.empty:
         print(f"⚠️ execute_data_operation_on_postgres: DataFrame is empty for table '{table_name}', skipping operation '{operation}'.")
         return f"Empty dataframe provided for {table_name}"
 
+    df = df.copy()
     pk_keys = [str(key).lower() for key in pk_keys]
     df.columns = [str(col).lower() for col in df.columns]
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+
+    orig_dtypes = {col: df[col].dtype for col in df.columns}
 
     # Replace NaN/NaT with None
     df = df.where(pd.notna(df), None)
@@ -322,12 +480,20 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                 elif 'created_date' in db_cols and 'createddate' in df.columns and 'created_date' not in df.columns:
                     df = df.rename(columns={'createddate': 'created_date'})
 
-                # Auto-add any DataFrame business columns missing from target table
+                # Auto-add any DataFrame business columns missing from target table (and inactive mirror if present)
                 missing_cols = [c for c in df.columns if c.lower() not in db_cols and c.lower() != 'unmapped_fields']
+                inactive_tbl = f"inactive_{table_name.lower()[len('active_'):]}" if table_name.lower().startswith('active_') else None
+                inactive_exists = False
+                if inactive_tbl and missing_cols:
+                    cur.execute(QUERIES['check_table_exists'], (inactive_tbl,))
+                    inactive_exists = cur.fetchone() is not None
+
                 for col in missing_cols:
-                    col_type = "NUMERIC" if pd.api.types.is_numeric_dtype(df[col]) else ("TIMESTAMP" if pd.api.types.is_datetime64_any_dtype(df[col]) else "VARCHAR")
+                    col_type = _infer_sql_column_type(df[col], orig_dtypes.get(col))
                     try:
-                        cur.execute(f'ALTER TABLE {table_name.lower()} ADD COLUMN IF NOT EXISTS "{col.lower()}" {col_type};')
+                        cur.execute(f'ALTER TABLE "{table_name.lower()}" ADD COLUMN IF NOT EXISTS "{col.lower()}" {col_type};')
+                        if inactive_exists:
+                            cur.execute(f'ALTER TABLE "{inactive_tbl}" ADD COLUMN IF NOT EXISTS "{col.lower()}" {col_type};')
                         conn.commit()
                         db_cols.add(col.lower())
                         clog(f"Added missing column '{col.lower()}' ({col_type}) to '{table_name}'", "SUCCESS")
@@ -339,7 +505,7 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                 if matched_cols:
                     df = df[matched_cols]
 
-            cols = ', '.join(df.columns)
+            cols = ', '.join(f'"{c}"' for c in df.columns)
 
             def clean_cell(cell):
                 if cell is pd.NaT or pd.isna(cell) or str(cell).strip() in ('NaT', 'nan', 'NaN', 'None'):
@@ -388,7 +554,7 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
             
             if pk_constraints and update_cols:
                 constraint_name = pk_constraints[0][0]
-                set_items = [f"{col} = EXCLUDED.{col}" for col in update_cols if col != 'modifieddatetime']
+                set_items = [f'"{col}" = EXCLUDED."{col}"' for col in update_cols if col != 'modifieddatetime']
                 if 'modifieddatetime' in db_cols:
                     set_items.append("modifieddatetime = NOW()")
                 set_clause = ", ".join(set_items)
@@ -557,6 +723,7 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
         ('sno', 'VARCHAR'),
         ('themename', 'VARCHAR'),
         ('processcode', 'VARCHAR'),
+        ('tablecode', 'VARCHAR'),
         ('checksum', 'VARCHAR'),
         ('input', 'VARCHAR'),
         ('output', 'VARCHAR'),
@@ -1611,7 +1778,7 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
     # Read Data
     if isinstance(input,pd.DataFrame):
 
-        inputdata=input 
+        inputdata=input.copy()
 
     else:          
 
@@ -1624,6 +1791,8 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
             exceptions.append("Failed/File Content Not Matching With The Extension:"+input)
             raise Exception(exceptions)
     
+    orig_inputdata = inputdata.copy().reset_index(drop=True)
+    inputdata = orig_inputdata.copy()
     mapped_cols = {str(col).strip().lower()for col in themedata["SourceFieldName"].dropna()if str(col).strip() != ""}
     
     additional_data = []
@@ -1683,6 +1852,56 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
         inputdata["unmapped_fields"] = parsed_unmapped
     except Exception as e_unmap:
         clog(f"Notice: unmapped_fields preservation: {e_unmap}", "WARNING")
+
+    # Promote all non-empty extra/unmapped columns to real PostgreSQL-ready columns (zero data loss)
+    extra_col_map = {}
+    try:
+        inputdata = inputdata.reset_index(drop=True)
+        existing_cols_lower = {str(c).strip().lower() for c in inputdata.columns}
+        skip_extra_cols = {'unmapped_fields', 'error msg'}
+
+        for orig_col in orig_inputdata.columns:
+            orig_name = str(orig_col).strip()
+            orig_low = orig_name.lower()
+            if orig_low in mapped_cols or orig_low in skip_extra_cols or orig_low.startswith('unnamed'):
+                continue
+
+            col_series = orig_inputdata[orig_col].reset_index(drop=True)
+            has_any_data = col_series.apply(lambda v: v is not None and not pd.isna(v) and str(v).strip() != '').any()
+            if not has_any_data:
+                continue
+
+            sql_col = _to_sql_col_name(orig_name)
+            if not sql_col or sql_col in skip_extra_cols:
+                continue
+
+            coerced = _coerce_extra_column_series(col_series)
+
+            if sql_col in existing_cols_lower:
+                # Coalesce into existing target column if it exists (e.g., tablecode / financialnotereference) without overwriting mapped data
+                existing_actual = next((c for c in inputdata.columns if str(c).strip().lower() == sql_col), None)
+                if existing_actual is not None:
+                    blank_mask = inputdata[existing_actual].isna() | (inputdata[existing_actual].astype(str).str.strip().isin(['', 'None', 'nan', 'NaN']))
+                    if blank_mask.any():
+                        inputdata.loc[blank_mask, existing_actual] = coerced.loc[blank_mask]
+                continue
+
+            base_sql = sql_col
+            suffix = 2
+            while sql_col in existing_cols_lower:
+                sql_col = f"{base_sql[:58]}_{suffix}"
+                suffix += 1
+
+            inputdata[sql_col] = coerced
+            existing_cols_lower.add(sql_col)
+            extra_col_map[sql_col] = orig_name
+
+        if extra_col_map:
+            clog(f"Promoted {len(extra_col_map)} extra Excel/table column(s) to real DB columns: {list(extra_col_map.keys())}", "INFO")
+    except Exception as e_promo:
+        clog(f"Warning: promoting extra columns: {e_promo}", "WARNING")
+
+    inputdata.attrs['extra_col_map'] = extra_col_map
 
     if isinstance(inputdata,pd.DataFrame) and Stage == "1" and processCode == "BT3I":
     
@@ -2159,11 +2378,382 @@ def extract_excel_metadata(excel_source, key=""):
         
     return meta
 
+def _clean_excel_str(val):
+    """Normalize a raw Excel cell to a single-spaced stripped string."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and np.isnan(val):
+        return ""
+    return re.sub(r"\s+", " ", str(val).strip())
+
+
+def _is_pure_number_cell(val):
+    """Return True if cell represents a pure numeric/currency value (not a date/ageing/label header)."""
+    if val is None or isinstance(val, (bool, datetime, pd.Timestamp)):
+        return False
+    if isinstance(val, (int, float)):
+        return not pd.isna(val)
+    s = _clean_excel_str(val)
+    if not s or len(s) > 25:
+        return False
+    # Exclude dates, FY ranges, percentages with labels, and ageing buckets (e.g. '31-03-2023', '1-2 years', '2022-23')
+    if re.search(r"[A-Za-z]", s):
+        return False
+    if re.match(r"^\d{1,4}[-/]\d{1,2}(?:[-/]\d{1,4})?$", s):
+        return False
+    return bool(re.match(r"^[+-]?\s*(?:₹|\$|€|£)?\s*\(?[\d,]+(?:\.\d+)?\)?$", s))
+
+
+def _is_col_index_row_vals(row_vals):
+    """Detect synthetic Excel column-numbering rows such as [1, 2, 3, 4]."""
+    non_empty = [v for v in row_vals if v is not None and _clean_excel_str(v) != ""]
+    if len(non_empty) < 2:
+        return False
+    for v in non_empty:
+        s = _clean_excel_str(v).replace(",", "")
+        try:
+            f = float(s)
+            if not (f.is_integer() and 1 <= f <= 30):
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _extract_note_or_table_code(text):
+    """Extract note/table code prefix (e.g. '1', '4A', '16', '18B', '19A', '10') from section or banner text."""
+    s = _clean_excel_str(text)
+    if not s:
+        return ""
+    m_kw = re.match(r"^(?:note|table|schedule|section)\s+([0-9]{1,3}[A-Za-z]{0,3})\b", s, re.IGNORECASE)
+    if m_kw:
+        return m_kw.group(1).upper()
+    m_num = re.match(r"^([0-9]{1,3}[A-Za-z]{0,3})\s*\.(?:\s+|$)", s)
+    if m_num:
+        return m_num.group(1).upper()
+    return ""
+
+
+def _has_header_tokens(cell_strs):
+    """Check whether header labels contain standard date, period, tax, or statement column tokens."""
+    combined = " | ".join(s.lower() for s in cell_strs if s)
+    if re.search(r"\b\d{1,2}[-./]\d{1,2}[-./]\d{2,4}\b", combined):
+        return True
+    tokens = (
+        "total", "opening", "closing", "addition", "deduction", "gross", "net",
+        "dep", "year", "month", "less than", "above", "more than", "ageing",
+        "tax", "cess", "particular", "note", "amount", "value", "balance",
+        "rate", "qty", "quantity", "date", "code", "description", "name", "status",
+        "fy ", "credit", "debit"
+    )
+    return any(tok in combined for tok in tokens)
+
+
+def _looks_like_subtable_header(row_vals, has_header=False, prev_was_blank=False, cur_active_cols=None):
+    """Determine if a row is an initial table header or a new mid-sheet sub-table header."""
+    non_empty = []
+    for ci, v in enumerate(row_vals):
+        s = _clean_excel_str(v)
+        if s != "":
+            non_empty.append((ci, v, s))
+
+    if len(non_empty) < 2:
+        return False
+
+    col1_plus = [(ci, v, s) for ci, v, s in non_empty if ci >= 1]
+    if not col1_plus:
+        return False
+
+    # Every non-empty cell in columns 1..N must look like a distinct non-numeric header label
+    seen_labels = set()
+    col1_strs = []
+    for _, v, s in col1_plus:
+        if _is_pure_number_cell(v) or len(s) > 80:
+            return False
+        if re.match(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$", s, re.IGNORECASE):
+            return False
+        low = s.lower()
+        if low in seen_labels:
+            return False
+        seen_labels.add(low)
+        col1_strs.append(s)
+
+    c0_str = _clean_excel_str(row_vals[0]) if row_vals else ""
+    note_code = _extract_note_or_table_code(c0_str)
+
+    if not has_header:
+        # Avoid false header on repeated merged banner titles across columns
+        if len(set(s.lower() for _, _, s in non_empty)) <= 1:
+            return False
+        return True
+
+    # Mid-sheet switch: guard against ordinary text-only data rows in tabular sheets
+    c0_low = c0_str.lower()
+    if any(fp in c0_low for fp in ("as per our report", "simulated statements", "notes form an integral")):
+        return False
+    if any(len(s.split()) > 10 for s in col1_strs):
+        return False
+
+    row_active_cols = tuple(ci for ci, _, _ in non_empty)
+    cols_changed = cur_active_cols is not None and row_active_cols != cur_active_cols
+    if not (prev_was_blank or note_code or cols_changed or _has_header_tokens(col1_strs)):
+        return False
+    return True
+
+
+def _load_openpyxl_grid(raw_bytes, sheet_name):
+    """Load an Excel sheet into a 2D matrix expanding small header merges horizontally."""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True)
+        if sheet_name not in wb.sheetnames:
+            return None
+        ws = wb[sheet_name]
+        max_r = ws.max_row or 0
+        max_c = ws.max_column or 0
+        if max_r == 0 or max_c == 0:
+            return []
+        grid = [[ws.cell(r, c).value for c in range(1, max_c + 1)] for r in range(1, max_r + 1)]
+        for rng in ws.merged_cells.ranges:
+            val = grid[rng.min_row - 1][rng.min_col - 1]
+            if val is None:
+                continue
+            is_full_width_banner = (rng.min_col == 1 and rng.max_col >= max_c - 1 and rng.min_row == rng.max_row)
+            if not is_full_width_banner and (rng.max_row - rng.min_row <= 1) and (rng.max_col - rng.min_col >= 1):
+                for r in range(rng.min_row - 1, rng.max_row):
+                    for c in range(rng.min_col - 1, rng.max_col):
+                        if grid[r][c] is None:
+                            grid[r][c] = val
+        return grid
+    except Exception:
+        return None
+
+
+def _parse_excel_sheet_flexible(raw_grid, sheet_name=""):
+    """
+    Flexibly extract ALL rows and ALL column headers from any Excel sheet layout,
+    including stacked multi-section / multi-header Note schedules, ragged columns,
+    2-tier headers, and TableCode extraction so zero data is ever lost.
+    """
+    if not raw_grid:
+        return pd.DataFrame()
+
+    # Trim trailing all-empty columns
+    max_used_col = -1
+    for row in raw_grid:
+        for ci, v in enumerate(row):
+            if _clean_excel_str(v) != "":
+                max_used_col = max(max_used_col, ci)
+    if max_used_col < 0:
+        return pd.DataFrame()
+    grid = [list(row[: max_used_col + 1]) + [None] * max(0, max_used_col + 1 - len(row)) for row in raw_grid]
+
+    sheet_default_tc = _extract_note_or_table_code(sheet_name)
+    banner_lines = []
+    current_headers = None
+    cur_active_cols = None
+    primary_col0_name = "Particulars"
+    current_section_code = sheet_default_tc
+    current_section_title = ""
+    records = []
+    col_order = []
+    prev_was_blank = False
+    is_financial_sheet = any(k in str(sheet_name).lower() for k in ("balance", "profit", "loss", "note", "ppe", "p&l", "income"))
+
+    def _register_col(cname):
+        if cname not in col_order:
+            col_order.append(cname)
+
+    idx = 0
+    n_rows = len(grid)
+    while idx < n_rows:
+        row_vals = grid[idx]
+        non_empty = [(ci, v, _clean_excel_str(v)) for ci, v in enumerate(row_vals) if _clean_excel_str(v) != ""]
+        if not non_empty:
+            prev_was_blank = True
+            idx += 1
+            continue
+
+        c0_val = row_vals[0] if len(row_vals) > 0 else None
+        c0_str = _clean_excel_str(c0_val)
+
+        if current_headers is None:
+            if _looks_like_subtable_header(row_vals, has_header=False):
+                # Check if next row is a column index row [1, 2, 3, 4] or a 2nd sub-header tier
+                next_row = grid[idx + 1] if idx + 1 < n_rows else None
+                combined_row = list(row_vals)
+                advance = 1
+                if next_row is not None:
+                    if _is_col_index_row_vals(next_row):
+                        advance = 2
+                    else:
+                        next_non_empty = [(ci, v, _clean_excel_str(v)) for ci, v in enumerate(next_row) if _clean_excel_str(v) != ""]
+                        # 2-tier subheader: next row has non-empty cells in cols >=1, none are pure numbers, and no note code
+                        if (
+                            len(next_non_empty) >= 1
+                            and not _extract_note_or_table_code(_clean_excel_str(next_row[0] if next_row else ""))
+                            and all(not _is_pure_number_cell(v) for _, v, _ in next_non_empty)
+                            and any(ci >= 1 for ci, _, _ in next_non_empty)
+                            and any(_clean_excel_str(row_vals[ci]) == "" or _clean_excel_str(row_vals[ci]) != _clean_excel_str(next_row[ci]) for ci, _, _ in next_non_empty)
+                            and not any(isinstance(v, (datetime, pd.Timestamp)) for _, v, _ in next_non_empty)
+                        ):
+                            for ci in range(len(combined_row)):
+                                top_h = _clean_excel_str(row_vals[ci])
+                                sub_h = _clean_excel_str(next_row[ci]) if ci < len(next_row) else ""
+                                if top_h and sub_h and top_h.lower() != sub_h.lower() and ci >= 1:
+                                    combined_row[ci] = f"{top_h} - {sub_h}"
+                                elif sub_h and not top_h:
+                                    combined_row[ci] = sub_h
+                            advance = 2
+
+                note_code = _extract_note_or_table_code(c0_str)
+                banner_text = " ".join(banner_lines).lower()
+                is_fin = is_financial_sheet or any(
+                    k in banner_text for k in ("balance sheet", "profit and loss", "notes to", "income and expenditure")
+                ) or bool(note_code)
+
+                if note_code:
+                    current_section_code = note_code
+                    current_section_title = c0_str
+                    primary_col0_name = "Particulars"
+                elif is_fin or c0_str.lower() in ("particulars", "particular", "tangible assets", "capital work-in-progress – ageing"):
+                    primary_col0_name = "Particulars"
+                    if c0_str.lower() not in ("particulars", "particular"):
+                        current_section_title = c0_str
+                else:
+                    primary_col0_name = c0_str if c0_str else "Particulars"
+
+                current_headers = {0: primary_col0_name}
+                _register_col(primary_col0_name)
+                used_hdr_names = {primary_col0_name.lower()}
+                for ci in range(1, len(combined_row)):
+                    h_name = _clean_excel_str(combined_row[ci])
+                    if h_name:
+                        base_h = h_name
+                        suf = 2
+                        while h_name.lower() in used_hdr_names:
+                            h_name = f"{base_h}_{suf}"
+                            suf += 1
+                        used_hdr_names.add(h_name.lower())
+                        current_headers[ci] = h_name
+                        _register_col(h_name)
+
+                cur_active_cols = tuple(ci for ci, _, _ in non_empty)
+                prev_was_blank = False
+                idx += advance
+                continue
+            else:
+                # Top banner lines before the first header table starts
+                banner_line = " ".join(s for _, _, s in non_empty)
+                banner_lines.append(banner_line)
+                bc = _extract_note_or_table_code(banner_line)
+                if bc and not sheet_default_tc:
+                    sheet_default_tc = bc
+                    current_section_code = bc
+                prev_was_blank = False
+                idx += 1
+                continue
+
+        # Inside table body
+        if _is_col_index_row_vals(row_vals):
+            prev_was_blank = False
+            idx += 1
+            continue
+
+        if _looks_like_subtable_header(row_vals, has_header=True, prev_was_blank=prev_was_blank, cur_active_cols=cur_active_cols):
+            # Switch active column headers to match the new sub-table
+            note_code = _extract_note_or_table_code(c0_str)
+            if note_code:
+                current_section_code = note_code
+            elif sheet_default_tc:
+                current_section_code = sheet_default_tc
+            if c0_str:
+                current_section_title = c0_str
+
+            new_headers = {0: primary_col0_name}
+            used_hdr_names = {primary_col0_name.lower()}
+            for ci in range(1, len(row_vals)):
+                h_name = _clean_excel_str(row_vals[ci])
+                if h_name:
+                    base_h = h_name
+                    suf = 2
+                    while h_name.lower() in used_hdr_names:
+                        h_name = f"{base_h}_{suf}"
+                        suf += 1
+                    used_hdr_names.add(h_name.lower())
+                    new_headers[ci] = h_name
+                    _register_col(h_name)
+
+            current_headers = new_headers
+            cur_active_cols = tuple(ci for ci, _, _ in non_empty)
+            prev_was_blank = False
+            idx += 1
+            continue
+
+        # Regular data row
+        rec = {}
+        for ci, v, s in non_empty:
+            if ci in current_headers:
+                cname = current_headers[ci]
+            else:
+                cname = f"Extra_Col_{ci + 1}"
+            _register_col(cname)
+            rec[cname] = v
+
+        # Disambiguate standalone 'Nil' lines using active note title
+        if primary_col0_name in rec and len(non_empty) == 1:
+            p_val = _clean_excel_str(rec[primary_col0_name])
+            if p_val.lower().startswith("nil") and current_section_title:
+                rec[primary_col0_name] = f"{current_section_title} - {p_val}"
+
+        # Populate TableCode (and Section / FinancialNoteReference when notes column isn't explicit)
+        note_col_val = ""
+        for k_note in ("Notes", "Note", "Note No.", "Note No"):
+            if k_note in rec and _clean_excel_str(rec[k_note]):
+                note_col_val = _clean_excel_str(rec[k_note])
+                break
+
+        row_tc = note_col_val or current_section_code
+        if not row_tc:
+            s_low = str(sheet_name).lower()
+            if "balance" in s_low:
+                row_tc = "BS"
+            elif "profit" in s_low or "p&l" in s_low or "income" in s_low:
+                row_tc = "PNL"
+            else:
+                row_tc = _clean_excel_str(sheet_name)
+
+        if row_tc:
+            rec["TableCode"] = row_tc
+            _register_col("TableCode")
+            if "Notes" not in current_headers.values() and "FinancialNoteReference" not in rec:
+                rec["FinancialNoteReference"] = row_tc
+                _register_col("FinancialNoteReference")
+
+        if current_section_title and "Section" not in rec:
+            rec["Section"] = current_section_title
+            _register_col("Section")
+
+        records.append(rec)
+        prev_was_blank = False
+        idx += 1
+
+    if not records:
+        return pd.DataFrame()
+
+    # Keep metadata cols right after primary column, then remaining value columns in order
+    front_cols = [c for c in [primary_col0_name, "TableCode", "FinancialNoteReference", "Section"] if c in col_order]
+    other_cols = [c for c in col_order if c not in front_cols]
+    df_out = pd.DataFrame(records)
+    df_out = df_out.reindex(columns=front_cols + other_cols)
+    df_out = df_out.dropna(how="all")
+    return df_out
+
+
 def ReadAllSheetsS3(key, bucket):
     """
-    Reads S3 file and returns a dictionary: {sheet_name: DataFrame}.
+    Reads S3 or local file and returns a dictionary: {sheet_name: DataFrame}.
     - For Excel files (.xlsx, .xls, .xlsm):
-        Opens the workbook and extracts each non-empty sheet into {sheet_name: DataFrame}.
+        Extracts each sheet flexibly across single-header, multi-section, and stacked sub-table layouts.
     - For CSV, TSV, JSON, etc.:
         Returns {'Default': DataFrame}.
     """
@@ -2210,44 +2800,18 @@ def ReadAllSheetsS3(key, bucket):
         sheets_dict = {}
         for s_name in excel_obj.sheet_names:
             try:
-                raw_sheet = pd.read_excel(excel_obj, sheet_name=s_name, header=None)
-                if raw_sheet.empty or raw_sheet.dropna(how='all').empty:
-                    continue
+                raw_grid = _load_openpyxl_grid(raw_bytes, s_name)
+                if raw_grid is None:
+                    raw_sheet = pd.read_excel(excel_obj, sheet_name=s_name, header=None)
+                    raw_grid = raw_sheet.where(pd.notna(raw_sheet), None).values.tolist()
 
-                # Auto-detect actual header row in top 15 rows
-                header_idx = 0
-                for idx, row in raw_sheet.iterrows():
-                    if idx > 15:
-                        break
-                    non_empty = [str(v).strip() for v in row if pd.notna(v) and str(v).strip() != '']
-                    row_str = ' '.join(non_empty).lower()
-                    if any(k in row_str for k in ['particular', 'note', 'tangible', 'opening', 'addition', 'gross', '31-03-', 'asset', 'revenue', 'expense', 'income']) and len(non_empty) >= 2:
-                        header_idx = idx
-                        break
-
-                sheet_df = pd.read_excel(excel_obj, sheet_name=s_name, header=header_idx)
-                sheet_df.rename(columns=lambda x: str(x).strip(), inplace=True)
-                sheet_df = sheet_df.dropna(subset=sheet_df.columns, how='all')
-
-                # Filter out pure column index row [1, 2, 3, 4] if present as row 0
-                if not sheet_df.empty:
-                    def is_col_num(v):
-                        try:
-                            f = float(str(v).replace(',', '').strip())
-                            return f.is_integer() and 1 <= f <= 20
-                        except Exception:
-                            return False
-                    first_row_vals = [v for v in sheet_df.iloc[0] if pd.notna(v)]
-                    if first_row_vals and all(is_col_num(v) for v in first_row_vals):
-                        sheet_df = sheet_df.iloc[1:].reset_index(drop=True)
-
-                # Standardize primary line-item description column name to 'Particulars' if not numeric
-                if not sheet_df.empty and len(sheet_df.columns) > 0:
-                    col0 = sheet_df.columns[0]
-                    if str(col0).strip().lower() not in ['particulars', 'particular', 'accountdescription']:
-                        non_null_c0 = sheet_df[col0].dropna()
-                        if not non_null_c0.empty and any(isinstance(v, str) and not v.replace('.', '', 1).isdigit() for v in non_null_c0.head(10)):
-                            sheet_df.rename(columns={col0: 'Particulars'}, inplace=True)
+                sheet_df = _parse_excel_sheet_flexible(raw_grid, sheet_name=s_name)
+                if sheet_df.empty:
+                    # Fallback for unusual key-value or headerless sheets
+                    fallback_df = pd.read_excel(excel_obj, sheet_name=s_name)
+                    fallback_df.rename(columns=lambda x: str(x).strip(), inplace=True)
+                    fallback_df = fallback_df.dropna(how='all')
+                    sheet_df = fallback_df
 
                 if not sheet_df.empty and len(sheet_df.columns) > 0:
                     sheet_df.attrs['metadata'] = file_meta
@@ -2837,6 +3401,97 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
             except Exception as e:
                 tenant_conn.rollback()
     
+    # Ensure 'tablecode' column exists on ALL active_* / inactive_* tenant tables
+    ensure_tablecode_on_all_tables(tenant_conn, backfill=True)
+
+    # Ensure res['tablecode'] is always populated across every table & process code
+    res_cols_low = {str(c).lower(): c for c in res.columns}
+    tc_col_actual = res_cols_low.get('tablecode')
+    if tc_col_actual and tc_col_actual != 'tablecode':
+        res = res.rename(columns={tc_col_actual: 'tablecode'})
+    elif not tc_col_actual:
+        res['tablecode'] = None
+
+    if str(DataKey).lower().startswith("table://"):
+        default_tc = [p for p in str(DataKey)[len("table://"):].replace("\\", "/").split("/") if p][-1]
+    elif sheet_name:
+        s_low = str(sheet_name).strip().lower()
+        if "balance" in s_low and "note" not in s_low:
+            default_tc = "BS"
+        elif any(k in s_low for k in ("profit", "loss", "p&l")) and "note" not in s_low:
+            default_tc = "PNL"
+        else:
+            default_tc = _extract_note_or_table_code(sheet_name) or str(sheet_name).strip()
+    else:
+        default_tc = str(ProcessCode).strip().upper()
+
+    fn_ref_col = next((c for c in res.columns if str(c).lower() == 'financialnotereference'), None)
+    sec_col = next((c for c in res.columns if str(c).lower() == 'section'), None)
+    desc_col = next((c for c in res.columns if str(c).lower() == 'accountdescription'), None)
+    st_col = next((c for c in res.columns if str(c).lower() == 'statementtype'), None)
+
+    filled_tc = []
+    for r_idx in res.index:
+        cur_tc = res.at[r_idx, 'tablecode']
+        cur_tc_str = "" if (cur_tc is None or pd.isna(cur_tc)) else str(cur_tc).strip()
+        if cur_tc_str and cur_tc_str.lower() not in ('none', 'nan', 'null'):
+            filled_tc.append(cur_tc_str)
+            continue
+        derived = ""
+        if fn_ref_col:
+            v = res.at[r_idx, fn_ref_col]
+            if v is not None and not pd.isna(v) and str(v).strip() not in ('', 'None', 'nan'):
+                derived = str(v).strip()
+        if not derived and sec_col:
+            derived = _extract_note_or_table_code(res.at[r_idx, sec_col])
+        if not derived and desc_col:
+            derived = _extract_note_or_table_code(res.at[r_idx, desc_col])
+        if not derived and st_col:
+            v = res.at[r_idx, st_col]
+            if v is not None and not pd.isna(v) and str(v).strip() not in ('', 'None', 'nan'):
+                derived = str(v).strip()
+        filled_tc.append(derived or default_tc or str(ProcessCode).strip().upper())
+    res['tablecode'] = filled_tc
+
+    # Register auto-promoted extra columns in theme_mapping so reverse Excel export maps back to original source headers
+    extra_col_map = dict(getattr(res, 'attrs', {}).get('extra_col_map', {}))
+    if extra_col_map:
+        try:
+            now_d = datetime.now().strftime("%Y-%m-%d")
+            now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            extra_theme_rows = []
+            for sql_c, src_hdr in extra_col_map.items():
+                is_num = pd.api.types.is_numeric_dtype(res[sql_c]) if sql_c in res.columns else False
+                extra_theme_rows.append({
+                    "created_date": now_d,
+                    "productcode": ProductName,
+                    "processcode": ProcessCode,
+                    "themename": ThemeName,
+                    "targetfielddatatype": "NUMERIC" if is_num else "VARCHAR",
+                    "lde": 0,
+                    "targetfieldname": sql_c,
+                    "sourcefieldname": src_hdr,
+                    "mandatory": None,
+                    "sourcefieldfunction": None,
+                    "DataFormat": None,
+                    "created_by": "AUTO_SCHEMA",
+                    "modified_by": "AUTO_SCHEMA",
+                    "created_time": now_ts,
+                    "inprd_time": now_ts,
+                })
+            if extra_theme_rows:
+                execute_data_operation_on_postgres(
+                    TenantID,
+                    pd.DataFrame(extra_theme_rows),
+                    "theme_mapping",
+                    ["productcode", "processcode", "themename", "targetfieldname"],
+                    "insert",
+                    conn=tenant_conn,
+                    cur=tenant_cursor,
+                )
+        except Exception as e_ext:
+            clog(f"Notice: extra column theme registration: {e_ext}", "WARNING")
+
     # Calculate deterministic row checksum across data columns
     res["checksum"] = compute_row_checksum(res)
     
@@ -3031,8 +3686,15 @@ def export_user_data_to_excel(tenant_conn, tenant_id, process_code, transaction_
                         unmapped_rows.append({})
                 df_unmap = pd.DataFrame(unmapped_rows, index=df_sheet.index)
                 df_unmap = df_unmap.dropna(how='all', axis=1)
+                existing_low = {str(c).lower() for c in df_sheet.columns}
                 for col_u in df_unmap.columns:
-                    if col_u not in df_sheet.columns and not str(col_u).lower().startswith('unnamed'):
+                    col_u_low = str(col_u).lower()
+                    if (
+                        col_u not in df_sheet.columns
+                        and col_u_low not in existing_low
+                        and _to_sql_col_name(col_u) not in existing_low
+                        and not col_u_low.startswith('unnamed')
+                    ):
                         df_sheet[col_u] = df_unmap[col_u]
 
             df_clean = df_sheet[[c for c in df_sheet.columns if c.lower() not in tech_cols]].copy()
