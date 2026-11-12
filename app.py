@@ -3344,21 +3344,33 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
                 commondb_conn.rollback()
                 clog(f"Notice: process table check: {e}", "WARNING")
 
-            # Determine statement keyword
-            check_text = f"{sheet_name or ''} {TransactionType} {DataKey}".lower()
-            if any(k in check_text for k in ["balance", "bs"]) and "profit" not in check_text and "note" not in check_text:
-                st_type = "Balance Sheet"
-            elif any(k in check_text for k in ["profit", "loss", "p&l", "income"]) and "note" not in check_text:
-                st_type = "Profit and Loss"
-            elif any(k in check_text for k in ["note", "ppe", "notes"]):
-                st_type = f"Notes to Accounts ({sheet_name})" if sheet_name else "Notes to Accounts"
-            else:
+            # Determine statement keyword (prioritize descriptive sheet_name for multi-sheet workbooks)
+            def _classify_fs_statement_type(text_val):
+                t = str(text_val or '').lower()
+                if any(k in t for k in ["note", "ppe", "notes"]):
+                    return "Notes to Accounts"
+                if any(k in t for k in ["balance", "bs"]) and "profit" not in t:
+                    return "Balance Sheet"
+                if any(k in t for k in ["profit", "loss", "p&l", "income"]):
+                    return "Profit and Loss"
+                return None
+
+            st_type = None
+            sheet_clean = str(sheet_name or '').strip()
+            if sheet_clean and not re.match(r'^sheet\d+$', sheet_clean, re.I):
+                st_type = _classify_fs_statement_type(sheet_clean)
+            if not st_type:
+                st_type = _classify_fs_statement_type(f"{sheet_clean} {TransactionType} {DataKey}")
+            if not st_type:
                 st_type = TransactionType if TransactionType else "Financial Statement"
             res["statementtype"] = st_type
 
-            # Update historical rows if any are empty
+            # Update historical rows if any are empty or have per-sheet bracketed Notes labels
             try:
-                tenant_cursor.execute(f"{QUERIES['update_fs_historical_pnl']}; {QUERIES['update_fs_historical_notes']};")
+                tenant_cursor.execute(
+                    f"{QUERIES['update_fs_historical_pnl']}; {QUERIES['update_fs_historical_notes']}; "
+                    "UPDATE active_fs SET statementtype = 'Notes to Accounts' WHERE statementtype LIKE 'Notes to Accounts (%';"
+                )
                 tenant_conn.commit()
             except Exception as e:
                 tenant_conn.rollback()
@@ -3667,8 +3679,14 @@ def export_user_data_to_excel(tenant_conn, tenant_id, process_code, transaction_
             sheet_title = str(st_name).replace('Notes to Accounts (', '').replace(')', '').strip()
             sheet_title = sheet_title[:31] if sheet_title else 'Data'
 
-            th = grp['themename'].iloc[0] if 'themename' in grp.columns and not grp['themename'].dropna().empty else ''
-            mapping = theme_mappings.get(th, global_map)
+            grp_themes = [str(t).strip() for t in grp['themename'].dropna().unique()] if 'themename' in grp.columns else []
+            mapping = {}
+            for th in grp_themes:
+                for k, v in theme_mappings.get(th, {}).items():
+                    if k not in mapping:
+                        mapping[k] = v
+            if not mapping:
+                mapping = global_map
 
             df_sheet = grp.copy()
 
