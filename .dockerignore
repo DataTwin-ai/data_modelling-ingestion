@@ -1,0 +1,29 @@
+# Keep secrets, data and tooling out of the image
+config.ini
+.env
+.env.*
+.git
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+exports/
+log/
+log_*.txt
+*.xlsx
+*.xls
+*.csv
+*.docx
+deploy/
+buildspec.yml
+Dockerfile
+.dockerignore
+README.md
+*.md
+generate_doc.py
+test.py
+Data Modelling & Ingestion.py
+.vscode/
+.idea/
+.claude/

@@ -1,0 +1,64 @@
+version: 0.2
+
+# Builds the Docker image, pushes it to ECR, then deploys it to the rfq-server
+# EC2 instance through SSM Run Command (no SSH keys stored anywhere).
+#
+# Project environment variables (set on the CodeBuild project):
+#   AWS_REGION      us-east-1
+#   ECR_REPOSITORY  data-modelling-ingestion
+#   INSTANCE_ID     i-08e7ab49e5a7ae437 (rfq-server)
+#   HOST_PORT       host port the API is published on
+#   BIND_ADDR       127.0.0.1 (local only) or 0.0.0.0
+
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+      - IMAGE_REPO="${REGISTRY}/${ECR_REPOSITORY}"
+      - IMAGE_TAG=$(echo "${CODEBUILD_RESOLVED_SOURCE_VERSION}" | cut -c1-8)
+      - echo "Building ${IMAGE_REPO}:${IMAGE_TAG}"
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+
+  build:
+    commands:
+      - set -euo pipefail
+      - docker build --pull -t "${IMAGE_REPO}:${IMAGE_TAG}" -t "${IMAGE_REPO}:latest" .
+      - docker push "${IMAGE_REPO}:${IMAGE_TAG}"
+      - docker push "${IMAGE_REPO}:latest"
+
+  post_build:
+    commands:
+      - set -euo pipefail
+      # Only deploy if the build phase succeeded.
+      - if [ "${CODEBUILD_BUILD_SUCCEEDING}" != "1" ]; then echo "Build failed; skipping deploy"; exit 1; fi
+      - SCRIPT_B64=$(base64 -w0 deploy/deploy.sh)
+      - >-
+        REMOTE_CMD="echo ${SCRIPT_B64} | base64 -d > /tmp/dmi-deploy.sh &&
+        AWS_REGION=${AWS_REGION} IMAGE_REPO=${IMAGE_REPO} IMAGE_TAG=${IMAGE_TAG}
+        HOST_PORT=${HOST_PORT} BIND_ADDR=${BIND_ADDR}
+        bash /tmp/dmi-deploy.sh; rc=\$?; rm -f /tmp/dmi-deploy.sh; exit \$rc"
+      - PARAMS=$(jq -n --arg c "$REMOTE_CMD" '{commands:[$c], executionTimeout:["900"]}')
+      - >-
+        COMMAND_ID=$(aws ssm send-command --region "$AWS_REGION"
+        --instance-ids "$INSTANCE_ID"
+        --document-name AWS-RunShellScript
+        --comment "data-modelling-ingestion ${IMAGE_TAG}"
+        --parameters "$PARAMS"
+        --query Command.CommandId --output text)
+      - echo "SSM command ${COMMAND_ID}"
+      - |
+        STATUS=Pending
+        for i in $(seq 1 90); do
+          sleep 10
+          STATUS=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+          case "$STATUS" in Pending|InProgress|Delayed) continue ;; *) break ;; esac
+        done
+        aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text || true
+        aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text || true
+        echo "Deploy status: ${STATUS}"
+        [ "$STATUS" = "Success" ]
