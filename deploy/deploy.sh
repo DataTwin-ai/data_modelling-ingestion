@@ -9,7 +9,7 @@
 #   * Rolls back to the previous image if the new one fails its health check.
 #
 # Required env: AWS_REGION, IMAGE_REPO (ECR repo URI, no tag), IMAGE_TAG
-# Optional env: HOST_PORT (8010), BIND_ADDR (127.0.0.1), CONTAINER,
+# Optional env: HOST_PORT (8010), BIND_ADDR (127.0.0.1), ROOT_PATH (""), CONTAINER,
 #               APP_DIR (/opt/data-modelling-ingestion), CONFIG_PARAM, KEEP_IMAGES (3)
 set -euo pipefail
 
@@ -22,6 +22,7 @@ CONTAINER="${CONTAINER:-data-modelling-ingestion}"
 APP_DIR="${APP_DIR:-/opt/data-modelling-ingestion}"
 CONFIG_PARAM="${CONFIG_PARAM:-/data-modelling-ingestion/config.ini}"
 KEEP_IMAGES="${KEEP_IMAGES:-3}"
+ROOT_PATH="${ROOT_PATH:-}"
 APP_UID=10001
 NEW_IMAGE="${IMAGE_REPO}:${IMAGE_TAG}"
 REGISTRY="${IMAGE_REPO%%/*}"
@@ -91,6 +92,7 @@ run_container() {
     -p "${BIND_ADDR}:${HOST_PORT}:8000" \
     -v "$APP_DIR/config.ini:/app/config.ini:ro" \
     -v "$APP_DIR/exports:/app/exports" \
+    -e ROOT_PATH="$ROOT_PATH" \
     --log-driver json-file --log-opt max-size=20m --log-opt max-file=5 \
     --label "app=${CONTAINER}" \
     "$1" >/dev/null

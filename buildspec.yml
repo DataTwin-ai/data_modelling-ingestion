@@ -40,7 +40,7 @@ phases:
       - >-
         REMOTE_CMD="echo ${SCRIPT_B64} | base64 -d > /tmp/dmi-deploy.sh &&
         AWS_REGION=${AWS_REGION} IMAGE_REPO=${IMAGE_REPO} IMAGE_TAG=${IMAGE_TAG}
-        HOST_PORT=${HOST_PORT} BIND_ADDR=${BIND_ADDR}
+        HOST_PORT=${HOST_PORT} BIND_ADDR=${BIND_ADDR} ROOT_PATH=${ROOT_PATH:-}
         bash /tmp/dmi-deploy.sh; rc=\$?; rm -f /tmp/dmi-deploy.sh; exit \$rc"
       - PARAMS=$(jq -n --arg c "$REMOTE_CMD" '{commands:[$c], executionTimeout:["900"]}')
       - >-

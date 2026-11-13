@@ -28,4 +28,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
 
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+# ROOT_PATH: URL prefix when served behind a reverse proxy
+# (e.g. /data-model-ingestion), so /docs loads the right openapi.json.
+ENV ROOT_PATH=""
+CMD ["sh", "-c", "exec uvicorn api:app --host 0.0.0.0 --port 8000 --root-path \"$ROOT_PATH\" --proxy-headers --forwarded-allow-ips=127.0.0.1,172.16.0.0/12"]
