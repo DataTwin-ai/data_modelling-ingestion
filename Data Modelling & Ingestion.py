@@ -864,11 +864,37 @@ def validate_column_format(inputdata, themedata, exceptions):
         # =====================================================
         elif data_type in ["DATE", "DATETIME"]:
 
-            if not date_format:
-                exceptions.append(
-                    f"Expected date format is not specified for column '{source_field}'."
-                )
+            # If all values in the column are null, empty, or whitespace, skip validation (valid empty date column)
+            non_empty_mask = column_values.notna() & (column_values.astype(str).str.strip().replace(
+                ["", "nan", "none", "nat", "null", "pd.na", "<na>", "none"], ""
+            ) != "")
+            if not non_empty_mask.any():
                 continue
+
+            # Detect false date mapping: Check if column actually contains numeric amounts or financial text
+            non_empty_series = column_values[non_empty_mask].astype(str).str.strip()
+            num_clean = non_empty_series.str.replace(r'[₹$€£,\s]', '', regex=True).str.replace(r'^\((.*)\)$', r'-\1', regex=True)
+            num_valid = pd.to_numeric(num_clean, errors='coerce').notna().sum()
+            has_financial_text = any(
+                any(c in v for c in ['₹', '$', '€', '£']) or
+                any(k in v.lower() for k in ['year', 'ended', 'lakh', 'crore', 'rs.', 'rs '])
+                for v in non_empty_series.head(20)
+            )
+            if num_valid > len(non_empty_series) * 0.3 or (has_financial_text and num_valid > 0):
+                continue
+
+            if not date_format:
+                sample_vals = column_values[non_empty_mask].head(10)
+                try:
+                    pd.to_datetime(sample_vals)
+                    date_format = "%Y-%m-%d"
+                except Exception:
+                    if num_valid > 0 or has_financial_text:
+                        continue
+                    exceptions.append(
+                        f"Expected date format is not specified for column '{source_field}'."
+                    )
+                    continue
 
             datetime_format = f"{date_format} %H:%M:%S"
 
@@ -910,22 +936,36 @@ def validate_column_format(inputdata, themedata, exceptions):
                         pass
 
                 if not valid:
+                    try:
+                        parsed_dt = pd.to_datetime(value)
+                        if pd.notna(parsed_dt):
+                            valid = True
+                    except Exception:
+                        pass
+
+                if not valid:
                     invalid_index.append(idx)
                     invalid_values.append(value)
 
             if invalid_index:
-
+                valid_count = len(non_empty_series) - len(invalid_index)
                 mask = inputdata.index.isin(invalid_index)
-
                 append_error(
                     inputdata,
                     mask,
                     f"Invalid Date Format: {source_field}"
                 )
 
-                exceptions.append(
-                    f"Column '{source_field}' must match date format '{raw_date_format}'. Invalid values: {list(set(invalid_values))}"
-                )
+                if valid_count == 0:
+                    if num_valid > 0 or has_financial_text:
+                        continue
+                    exceptions.append(
+                        f"Column '{source_field}' must match date format '{raw_date_format}'. Invalid values: {list(set(invalid_values))[:5]}"
+                    )
+                elif len(invalid_index) > len(non_empty_series) * 0.5:
+                    exceptions.append(
+                        f"Column '{source_field}' must match date format '{raw_date_format}'. Invalid values: {list(set(invalid_values))[:5]}"
+                    )
 
     return exceptions, inputdata
 

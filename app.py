@@ -1402,12 +1402,28 @@ def validate_column_format(inputdata, themedata, exceptions):
             if not non_empty_mask.any():
                 continue
 
+            # Detect false date mapping: Check if column actually contains numeric amounts or financial text
+            non_empty_series = column_values[non_empty_mask].astype(str).str.strip()
+            num_clean = non_empty_series.str.replace(r'[₹$€£,\s]', '', regex=True).str.replace(r'^\((.*)\)$', r'-\1', regex=True)
+            num_valid = pd.to_numeric(num_clean, errors='coerce').notna().sum()
+            has_financial_text = any(
+                any(c in v for c in ['₹', '$', '€', '£']) or
+                any(k in v.lower() for k in ['year', 'ended', 'lakh', 'crore', 'rs.', 'rs '])
+                for v in non_empty_series.head(20)
+            )
+            if num_valid > len(non_empty_series) * 0.3 or (has_financial_text and num_valid > 0):
+                clog(f"⚠️ Column '{source_field}' was mapped as DATE ('{raw_date_format}'), but contains numeric amounts/financial text ({num_valid}/{len(non_empty_series)} values). Skipping date validation.", "WARNING")
+                continue
+
             if not date_format:
                 sample_vals = column_values[non_empty_mask].head(10)
                 try:
                     pd.to_datetime(sample_vals)
                     date_format = "%Y-%m-%d"
                 except Exception:
+                    # If sample values look like numeric or text, skip rather than failing
+                    if num_valid > 0 or has_financial_text:
+                        continue
                     exceptions.append(
                         f"Expected date format is not specified for column '{source_field}'."
                     )
@@ -1465,18 +1481,27 @@ def validate_column_format(inputdata, themedata, exceptions):
                     invalid_values.append(value)
 
             if invalid_index:
-
+                valid_count = len(non_empty_series) - len(invalid_index)
                 mask = inputdata.index.isin(invalid_index)
-
                 append_error(
                     inputdata,
                     mask,
                     f"Invalid Date Format: {source_field}"
                 )
 
-                exceptions.append(
-                    f"Column '{source_field}' must match date format '{raw_date_format}'. Invalid values: {list(set(invalid_values))}"
-                )
+                # If zero valid dates exist, verify if column contains financial amounts/text (false date mapping)
+                if valid_count == 0:
+                    if num_valid > 0 or has_financial_text:
+                        clog(f"⚠️ Column '{source_field}' contains no valid dates but has amounts/financial text. Skipping date format error.", "WARNING")
+                        continue
+                    exceptions.append(
+                        f"Column '{source_field}' must match date format '{raw_date_format}'. Invalid values: {list(set(invalid_values))[:5]}"
+                    )
+                # If majority (>50%) are valid dates, flag row errors in Error Msg without failing the whole file
+                elif len(invalid_index) > len(non_empty_series) * 0.5:
+                    exceptions.append(
+                        f"Column '{source_field}' must match date format '{raw_date_format}'. Invalid values: {list(set(invalid_values))[:5]}"
+                    )
 
     return exceptions, inputdata
 
@@ -1707,13 +1732,12 @@ def StandardProcessDataMap(data, themeData, metaInfo, exceptions):
                 internalFormat = internalFormat.replace(attr, mapped_val)      
 
         try:
-            data[dateCol] = pd.to_datetime(data[dateCol], format=internalFormat)
+            data[dateCol] = pd.to_datetime(data[dateCol], format=internalFormat, errors='coerce')
         except Exception:
             try:
-                data[dateCol] = pd.to_datetime(data[dateCol])
+                data[dateCol] = pd.to_datetime(data[dateCol], errors='coerce')
             except Exception as E:
-                exceptions.append("Date Format Issue [column:%s]; [PDM:%s]; [Exact Error:%s]"%(dateCol,str(format),E))
-                return exceptions
+                clog(f"Notice: date conversion fallback for '{dateCol}': {E}", "WARNING")
 
         if formatName == "DATE":
             data[dateCol] = [str(x)[:10] if pd.notna(x) else None for x in list(data[dateCol])]
@@ -1927,6 +1951,65 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
     
     orig_inputdata = inputdata.copy().reset_index(drop=True)
     inputdata = orig_inputdata.copy()
+
+    # Auto-detect and correct false DATE mappings in themedata (e.g. amount columns like 'Col2' falsely typed as DATE)
+    for th_idx, th_row in themedata.iterrows():
+        tgt_dtype = str(th_row.get("TargetFieldDataType", "")).strip().upper()
+        src_col = str(th_row.get("SourceFieldName", "")).strip()
+        if tgt_dtype in ["DATE", "DATETIME"] and src_col and src_col in inputdata.columns:
+            s_vals = inputdata[src_col].dropna()
+            if not s_vals.empty:
+                s_clean = s_vals.astype(str).str.strip()
+                real_vals = s_clean[~s_clean.str.lower().isin(['', 'none', 'nan', 'nat', 'null', 'na', '<na>'])]
+                if not real_vals.empty:
+                    d_fmt = convert_to_strptime_format(th_row.get("DataFormat"))
+                    valid_date_cnt = 0
+                    for v in real_vals.head(50):
+                        v_str = str(v).strip()
+                        try:
+                            if d_fmt:
+                                datetime.strptime(v_str, d_fmt)
+                            else:
+                                pd.to_datetime(v_str)
+                            valid_date_cnt += 1
+                        except Exception:
+                            try:
+                                pd.to_datetime(v_str)
+                                valid_date_cnt += 1
+                            except Exception:
+                                pass
+                    
+                    num_clean = real_vals.str.replace(r'[₹$€£,\s]', '', regex=True).str.replace(r'^\((.*)\)$', r'-\1', regex=True)
+                    num_valid = pd.to_numeric(num_clean, errors='coerce').notna().sum()
+                    has_fin_text = any(
+                        any(c in v for c in ['₹', '$', '€', '£']) or
+                        any(k in v.lower() for k in ['year', 'ended', 'lakh', 'crore', 'rs.', 'rs '])
+                        for v in real_vals.head(20)
+                    )
+
+                    if valid_date_cnt == 0 or num_valid > len(real_vals) * 0.3 or (has_fin_text and num_valid > 0):
+                        new_dtype = "FLOAT" if num_valid > 0 else "VARCHAR"
+                        clog(f"⚠️ Column '{src_col}' in theme '{themeName}' was falsely mapped as {tgt_dtype} ('{th_row.get('DataFormat')}'). Auto-correcting to {new_dtype}.", "WARNING")
+                        themedata.at[th_idx, "TargetFieldDataType"] = new_dtype
+                        themedata.at[th_idx, "DataFormat"] = None
+                        try:
+                            with tenant_conn.cursor() as cur_fix:
+                                cur_fix.execute(
+                                    """
+                                    UPDATE theme_mapping 
+                                    SET targetfielddatatype = %s, dataformat = NULL, modified_by = 'AUTO_FIX', inprd_time = NOW()
+                                    WHERE productcode = %s AND processcode = %s AND themename = %s AND sourcefieldname = %s
+                                    """,
+                                    (new_dtype, productCode, processCode, themeName, src_col)
+                                )
+                            tenant_conn.commit()
+                            clog(f"Persisted auto-correction for '{src_col}' -> {new_dtype} in theme_mapping DB", "SUCCESS")
+                        except Exception:
+                            try:
+                                tenant_conn.rollback()
+                            except Exception:
+                                pass
+
     mapped_cols = {str(col).strip().lower()for col in themedata["SourceFieldName"].dropna()if str(col).strip() != ""}
     
     additional_data = []
@@ -3119,6 +3202,17 @@ def handle_new_process_metadata(tenantID, bucket, DataKey, response1, project_id
         if str(data_type).upper() in ["DATE", "DATETIME"] and (not date_format or str(date_format).strip().lower() in ['none', 'nan', 'null', '']):
             date_format = "YYYY-MM-DD"
 
+        # Prevent false date mapping on numeric amount columns (e.g. 'Year ended 31-03-2026', 'Col2')
+        if str(data_type).upper() in ["DATE", "DATETIME"] and source_field_name and data is not None and isinstance(data, pd.DataFrame) and source_field_name in data.columns:
+            src_vals = data[source_field_name].dropna()
+            if not src_vals.empty:
+                s_vals = src_vals.astype(str).str.replace(r'[₹$€£,\s]', '', regex=True).str.replace(r'^\((.*)\)$', r'-\1', regex=True)
+                num_converted = pd.to_numeric(s_vals, errors='coerce')
+                if num_converted.notna().sum() > len(src_vals) * 0.3:
+                    clog(f"Prevented false date mapping in new process: '{source_field_name}' contains numbers/amounts, not dates. Remapping to FLOAT.", "WARNING")
+                    data_type = "FLOAT"
+                    date_format = None
+
         process_meta = {
             "product_cd": "DTFOWS",
             "process_cd": process_code,
@@ -3282,14 +3376,16 @@ def handle_existing_process_metadata(tenantID, bucket, DataKey, response1, proje
         if dt_check in ["DATE", "DATETIME"] and (not date_format or str(date_format).strip().lower() in ['none', 'nan', 'null', '']):
             date_format = "YYYY-MM-DD"
 
-        # Prevent false date mapping on numeric amount columns (e.g. Gross 01.04.22)
+        # Prevent false date mapping on numeric amount columns (e.g. Gross 01.04.22, 'Col2')
         if str(target_field_dataType).upper() in ["DATE", "DATETIME"] and source_field_name and data is not None and isinstance(data, pd.DataFrame) and source_field_name in data.columns:
             src_vals = data[source_field_name].dropna()
             if not src_vals.empty:
-                num_converted = pd.to_numeric(src_vals.astype(str).str.replace(',', '').str.strip(), errors='coerce')
-                if num_converted.notna().sum() > len(src_vals) * 0.5:
-                    clog(f"Prevented false date mapping: '{source_field_name}' contains numbers/amounts, not dates. Skipping date mapping.", "WARNING")
-                    continue
+                s_vals = src_vals.astype(str).str.replace(r'[₹$€£,\s]', '', regex=True).str.replace(r'^\((.*)\)$', r'-\1', regex=True)
+                num_converted = pd.to_numeric(s_vals, errors='coerce')
+                if num_converted.notna().sum() > len(src_vals) * 0.3:
+                    clog(f"Prevented false date mapping: '{source_field_name}' contains numbers/amounts, not dates. Remapping to FLOAT.", "WARNING")
+                    target_field_dataType = "FLOAT"
+                    date_format = None
 
         theme_metadata = {
 
