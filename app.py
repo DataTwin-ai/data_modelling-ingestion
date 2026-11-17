@@ -276,6 +276,9 @@ def _to_sql_col_name(name):
 
 def _coerce_extra_column_series(series):
     """Coerce currency/number strings to numeric dtype when all non-empty non-placeholder values are numeric."""
+    if pd.api.types.is_bool_dtype(series):
+        return series
+
     if pd.api.types.is_numeric_dtype(series):
         return series
 
@@ -290,6 +293,20 @@ def _coerce_extra_column_series(series):
 
     if not non_empty:
         return series
+
+    # If column contains boolean string values (e.g. is_duplicate, is_active), coerce to boolean
+    col_name = str(getattr(series, 'name', '') or '').strip().lower()
+    if col_name.startswith(('is_', 'has_')) and all(s.lower() in ('true', 'false', '0', '1', '0.0', '1.0', 't', 'f', 'yes', 'no') for s in non_empty):
+        def _to_bool_val(v):
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return None
+            s_low = str(v).strip().lower()
+            if s_low in ('true', 't', '1', '1.0', 'yes', 'y'):
+                return True
+            if s_low in ('false', 'f', '0', '0.0', 'no', 'n'):
+                return False
+            return None
+        return series.apply(_to_bool_val)
 
     numeric_vals = []
     for s in non_empty:
@@ -320,23 +337,42 @@ def _coerce_extra_column_series(series):
 
 
 def _infer_sql_column_type(series, orig_dtype=None):
-    """Infer safe PostgreSQL column type ('DOUBLE PRECISION', 'TIMESTAMP', or 'TEXT') from values/dtype."""
-    if orig_dtype is not None:
-        if pd.api.types.is_numeric_dtype(orig_dtype):
-            return "DOUBLE PRECISION"
-        if pd.api.types.is_datetime64_any_dtype(orig_dtype):
-            return "TIMESTAMP"
-    if pd.api.types.is_numeric_dtype(series):
-        return "DOUBLE PRECISION"
-    if pd.api.types.is_datetime64_any_dtype(series):
-        return "TIMESTAMP"
+    """Infer safe PostgreSQL column type ('BOOLEAN', 'DOUBLE PRECISION', 'TIMESTAMP', or 'TEXT') from values/dtype."""
+    col_name = str(getattr(series, 'name', '') or '').strip().lower()
+
+    # 1. Explicit boolean check
+    if orig_dtype is not None and pd.api.types.is_bool_dtype(orig_dtype):
+        return "BOOLEAN"
+    if pd.api.types.is_bool_dtype(series):
+        return "BOOLEAN"
 
     non_null = [v for v in series if v is not None and not (isinstance(v, float) and np.isnan(v))]
-    if non_null:
-        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in non_null):
-            return "DOUBLE PRECISION"
-        if all(isinstance(v, (datetime, pd.Timestamp)) for v in non_null):
-            return "TIMESTAMP"
+
+    # Empty column: do NOT default to DOUBLE PRECISION just because pandas initializes empty Series as float64
+    if not non_null:
+        if col_name.startswith(('is_', 'has_')):
+            return "BOOLEAN"
+        return "TEXT"
+
+    # 2. Check for boolean values
+    if all(isinstance(v, (bool, np.bool_)) for v in non_null):
+        return "BOOLEAN"
+    if col_name.startswith(('is_', 'has_')) and all(str(v).strip().lower() in ('true', 'false', '0', '1', '0.0', '1.0', 't', 'f') for v in non_null):
+        return "BOOLEAN"
+
+    # 3. Check for datetime / timestamps
+    if orig_dtype is not None and pd.api.types.is_datetime64_any_dtype(orig_dtype):
+        return "TIMESTAMP"
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "TIMESTAMP"
+    if all(isinstance(v, (datetime, pd.Timestamp)) for v in non_null):
+        return "TIMESTAMP"
+
+    # 4. Check for purely numeric values (excluding bools)
+    if all(isinstance(v, (int, float)) and not isinstance(v, (bool, np.bool_)) for v in non_null):
+        return "DOUBLE PRECISION"
+
+    # 5. Default to safe TEXT
     return "TEXT"
 
 
@@ -463,10 +499,15 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
             except Exception:
                 conn.rollback()
 
-            # Check actual columns that exist in the target database table
-            cur.execute(QUERIES.get('check_columns', "SELECT column_name FROM information_schema.columns WHERE table_name = %s"), (table_name.lower(),))
-            db_cols_list = [r[0].lower() for r in cur.fetchall()]
+            # Check actual columns and data types that exist in the target database table
+            cur.execute(
+                "SELECT column_name, data_type, udt_name FROM information_schema.columns WHERE table_name = %s",
+                (table_name.lower(),)
+            )
+            col_info = cur.fetchall()
+            db_cols_list = [r[0].lower() for r in col_info]
             db_cols = set(db_cols_list)
+            db_col_types = {r[0].lower(): (r[1].lower() if r[1] else '', r[2].lower() if r[2] else '') for r in col_info}
 
             # Compute row checksum if missing or empty
             if 'checksum' in db_cols:
@@ -480,13 +521,39 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                 elif 'created_date' in db_cols and 'createddate' in df.columns and 'created_date' not in df.columns:
                     df = df.rename(columns={'createddate': 'created_date'})
 
-                # Auto-add any DataFrame business columns missing from target table (and inactive mirror if present)
-                missing_cols = [c for c in df.columns if c.lower() not in db_cols and c.lower() != 'unmapped_fields']
+                # Check if inactive mirror table exists
                 inactive_tbl = f"inactive_{table_name.lower()[len('active_'):]}" if table_name.lower().startswith('active_') else None
                 inactive_exists = False
-                if inactive_tbl and missing_cols:
+                if inactive_tbl:
                     cur.execute(QUERIES['check_table_exists'], (inactive_tbl,))
                     inactive_exists = cur.fetchone() is not None
+
+                # Auto-migrate any boolean columns previously created as numeric/double precision in DB (e.g. is_duplicate)
+                for col in df.columns:
+                    col_low = str(col).lower()
+                    if col_low in db_col_types:
+                        d_type, u_type = db_col_types[col_low]
+                        is_df_bool = (
+                            pd.api.types.is_bool_dtype(df[col])
+                            or (col_low.startswith(('is_', 'has_')) and df[col].dropna().apply(lambda v: isinstance(v, (bool, np.bool_))).any())
+                        )
+                        if is_df_bool and any(t in d_type or t in u_type for t in ('double', 'float', 'numeric', 'integer', 'int', 'real')):
+                            try:
+                                cur.execute(f'ALTER TABLE "{table_name.lower()}" ALTER COLUMN "{col_low}" TYPE boolean USING (CASE WHEN "{col_low}"::text IN (\'1\', \'1.0\', \'true\', \'t\', \'True\') THEN true WHEN "{col_low}"::text IN (\'0\', \'0.0\', \'false\', \'f\', \'False\') THEN false ELSE NULL END);')
+                                if inactive_exists:
+                                    try:
+                                        cur.execute(f'ALTER TABLE "{inactive_tbl}" ALTER COLUMN "{col_low}" TYPE boolean USING (CASE WHEN "{col_low}"::text IN (\'1\', \'1.0\', \'true\', \'t\', \'True\') THEN true WHEN "{col_low}"::text IN (\'0\', \'0.0\', \'false\', \'f\', \'False\') THEN false ELSE NULL END);')
+                                    except Exception:
+                                        pass
+                                conn.commit()
+                                db_col_types[col_low] = ('boolean', 'bool')
+                                clog(f"Migrated column '{col_low}' in '{table_name}' from {d_type} to boolean", "SUCCESS")
+                            except Exception as e_alt:
+                                conn.rollback()
+                                clog(f"Notice: could not alter column '{col_low}' to boolean ({e_alt}); coercing values to match {d_type}", "WARNING")
+
+                # Auto-add any DataFrame business columns missing from target table (and inactive mirror if present)
+                missing_cols = [c for c in df.columns if c.lower() not in db_cols and c.lower() != 'unmapped_fields']
 
                 for col in missing_cols:
                     col_type = _infer_sql_column_type(df[col], orig_dtypes.get(col))
@@ -496,6 +563,7 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                             cur.execute(f'ALTER TABLE "{inactive_tbl}" ADD COLUMN IF NOT EXISTS "{col.lower()}" {col_type};')
                         conn.commit()
                         db_cols.add(col.lower())
+                        db_col_types[col.lower()] = (col_type.lower(), col_type.lower())
                         clog(f"Added missing column '{col.lower()}' ({col_type}) to '{table_name}'", "SUCCESS")
                     except Exception:
                         conn.rollback()
@@ -503,7 +571,58 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                 # Retain only columns that exist in the target table
                 matched_cols = [col for col in df.columns if col in db_cols]
                 if matched_cols:
-                    df = df[matched_cols]
+                    df = df[matched_cols].copy()
+
+                # Robust type-coercion based on target PostgreSQL column types to prevent psycopg2 DatatypeMismatch
+                for col in df.columns:
+                    col_low = str(col).lower()
+                    d_type, u_type = db_col_types.get(col_low, ('', ''))
+
+                    # Target column is numeric (double precision, float, numeric, integer, etc.)
+                    if any(t in d_type or t in u_type for t in ('double', 'float', 'numeric', 'decimal', 'real', 'integer', 'int')):
+                        is_int_target = any(t in d_type or t in u_type for t in ('integer', 'int', 'smallint', 'bigint'))
+                        def _coerce_to_num(v, is_int=is_int_target):
+                            if v is None or (isinstance(v, float) and np.isnan(v)):
+                                return None
+                            if isinstance(v, (bool, np.bool_)):
+                                return 1 if is_int else (1.0 if v else 0.0)
+                            if isinstance(v, str):
+                                s = v.strip().lower()
+                                if s in ('', 'none', 'nan', 'nat', 'null'):
+                                    return None
+                                if s in ('true', 't', 'yes', 'y'):
+                                    return 1 if is_int else 1.0
+                                if s in ('false', 'f', 'no', 'n'):
+                                    return 0 if is_int else 0.0
+                                try:
+                                    return int(float(s)) if is_int else float(s)
+                                except Exception:
+                                    return None
+                            try:
+                                return int(v) if is_int else float(v)
+                            except Exception:
+                                return None
+                        df[col] = df[col].apply(_coerce_to_num)
+
+                    # Target column is boolean
+                    elif any(t in d_type or t in u_type for t in ('bool', 'boolean')):
+                        def _coerce_to_bool(v):
+                            if v is None or (isinstance(v, float) and np.isnan(v)):
+                                return None
+                            if isinstance(v, (bool, np.bool_)):
+                                return bool(v)
+                            if isinstance(v, (int, float)):
+                                return bool(v != 0)
+                            if isinstance(v, str):
+                                s = v.strip().lower()
+                                if s in ('', 'none', 'nan', 'nat', 'null'):
+                                    return None
+                                if s in ('true', 't', '1', '1.0', 'yes', 'y'):
+                                    return True
+                                if s in ('false', 'f', '0', '0.0', 'no', 'n'):
+                                    return False
+                            return bool(v)
+                        df[col] = df[col].apply(_coerce_to_bool)
 
             cols = ', '.join(f'"{c}"' for c in df.columns)
 
@@ -513,6 +632,15 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
 
                 if isinstance(cell, pd.Timestamp):
                     return cell.to_pydatetime()
+
+                if isinstance(cell, (np.bool_, bool)):
+                    return bool(cell)
+
+                if isinstance(cell, np.integer):
+                    return int(cell)
+
+                if isinstance(cell, np.floating):
+                    return float(cell) if not np.isnan(cell) else None
 
                 if isinstance(cell, dict):
                     return Json(cell)          # <-- convert dict to PostgreSQL JSON
@@ -749,6 +877,10 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
         'integer': 'integer',
         'FLOAT': 'float8',
         'float': 'float8',
+        'BOOLEAN': 'boolean',
+        'boolean': 'boolean',
+        'BOOL': 'boolean',
+        'bool': 'boolean',
         'DATE': 'date',
         'date': 'date',
         'DATETIME': 'timestamp',
@@ -765,6 +897,8 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
             default_value = " DEFAULT '' "
         elif pg_dtype in ['integer', 'float8']:
             default_value = " DEFAULT 0 "
+        elif pg_dtype == 'boolean':
+            default_value = " DEFAULT false "
         elif pg_dtype == 'date':
             default_value = " DEFAULT '1900-01-01' "
         elif pg_dtype == 'timestamp':
@@ -3473,13 +3607,15 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
             now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             extra_theme_rows = []
             for sql_c, src_hdr in extra_col_map.items():
-                is_num = pd.api.types.is_numeric_dtype(res[sql_c]) if sql_c in res.columns else False
+                is_bool = pd.api.types.is_bool_dtype(res[sql_c]) if sql_c in res.columns else False
+                is_num = (pd.api.types.is_numeric_dtype(res[sql_c]) and not is_bool) if sql_c in res.columns else False
+                target_dt = "BOOLEAN" if is_bool else ("NUMERIC" if is_num else "VARCHAR")
                 extra_theme_rows.append({
                     "created_date": now_d,
                     "productcode": ProductName,
                     "processcode": ProcessCode,
                     "themename": ThemeName,
-                    "targetfielddatatype": "NUMERIC" if is_num else "VARCHAR",
+                    "targetfielddatatype": target_dt,
                     "lde": 0,
                     "targetfieldname": sql_c,
                     "sourcefieldname": src_hdr,

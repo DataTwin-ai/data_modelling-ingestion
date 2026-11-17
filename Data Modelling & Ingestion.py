@@ -176,6 +176,15 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                 if isinstance(cell, pd.Timestamp):
                     return cell.to_pydatetime()
 
+                if isinstance(cell, (np.bool_, bool)):
+                    return bool(cell)
+
+                if isinstance(cell, np.integer):
+                    return int(cell)
+
+                if isinstance(cell, np.floating):
+                    return float(cell) if not np.isnan(cell) else None
+
                 if isinstance(cell, dict):
                     return Json(cell)          # <-- convert dict to PostgreSQL JSON
 
