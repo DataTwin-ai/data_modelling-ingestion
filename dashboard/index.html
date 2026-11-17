@@ -6,46 +6,54 @@
 <title>Ingestion Console</title>
 <style>
   :root {
-    --bg: #f5f6f8;
+    --bg: #eef1f8;
     --panel: #ffffff;
-    --panel-2: #f0f2f5;
-    --border: #e1e4e9;
-    --text: #1b1f24;
-    --muted: #677180;
-    --accent: #2f6fde;
-    --accent-soft: #e5eefc;
-    --ok: #1d8a4e;
-    --ok-soft: #e3f4ea;
-    --warn: #b86e00;
-    --warn-soft: #fbf0dc;
-    --err: #c8372d;
-    --err-soft: #fbe6e4;
-    --stage: #6b47c9;
-    --log-bg: #11151b;
-    --log-text: #d6dbe2;
-    --log-muted: #7d8794;
-    --radius: 10px;
+    --panel-2: #f3f5fb;
+    --border: #dde2ee;
+    --text: #182033;
+    --muted: #63708a;
+    --accent: #4f46e5;
+    --accent-2: #0ea5a4;
+    --accent-soft: #ecebfd;
+    --ok: #0f9d6b;
+    --ok-soft: #dff6ec;
+    --warn: #c27803;
+    --warn-soft: #fdf1d8;
+    --err: #d93a4a;
+    --err-soft: #fde7ea;
+    --stage: #7c4dff;
+    --head-1: #1e1b4b;
+    --head-2: #3730a3;
+    --log-bg: #0f1324;
+    --log-text: #d8def0;
+    --log-muted: #7f89a8;
+    --shadow: 0 1px 2px rgba(24,32,51,.06), 0 4px 14px rgba(24,32,51,.06);
+    --radius: 12px;
     --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1216;
-      --panel: #171b21;
-      --panel-2: #1e232b;
-      --border: #2a3039;
-      --text: #e4e8ee;
-      --muted: #8b95a3;
-      --accent: #5b92f0;
-      --accent-soft: #1d2a40;
-      --ok: #45b97a;
-      --ok-soft: #16301f;
-      --warn: #e0a040;
-      --warn-soft: #33270f;
-      --err: #ef6a5f;
-      --err-soft: #3a1a18;
-      --stage: #a48ef0;
-      --log-bg: #0a0c10;
+      --bg: #0d1020;
+      --panel: #151a2e;
+      --panel-2: #1c2239;
+      --border: #2a3150;
+      --text: #e6e9f5;
+      --muted: #8e98b6;
+      --accent: #8b85ff;
+      --accent-2: #2dd4bf;
+      --accent-soft: #252a55;
+      --ok: #34d399;
+      --ok-soft: #12332a;
+      --warn: #fbbf24;
+      --warn-soft: #3a2e10;
+      --err: #fb7185;
+      --err-soft: #3d1a24;
+      --stage: #a78bfa;
+      --head-1: #0b0e1f;
+      --head-2: #27236b;
+      --log-bg: #080b17;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
       color-scheme: dark;
     }
   }
@@ -60,11 +68,15 @@
   }
   header {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+    padding: 14px 20px; color: #fff;
+    background: linear-gradient(110deg, var(--head-1) 0%, var(--head-2) 70%, #0e7490 100%);
   }
-  header h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: .2px; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  header h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .2px; }
+  header .sub { color: rgba(255,255,255,.72); font-size: 12px; }
+  .conn {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: #fff;
+    background: rgba(255,255,255,.12); padding: 4px 10px; border-radius: 99px;
+  }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
   .dot.down { background: var(--err); }
@@ -79,9 +91,13 @@
   .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
   .card {
     background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 16px; min-height: 0;
+    padding: 16px; min-height: 0; box-shadow: var(--shadow);
   }
-  .card h2 { margin: 0 0 12px; font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .card h2 {
+    margin: 0 0 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--accent);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .card h2 .count { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
 
   /* Upload form */
   label.field { display: block; margin-bottom: 10px; }
@@ -99,9 +115,12 @@
   .drop strong { color: var(--text); display: block; word-break: break-all; }
   .drop small { display: block; margin-top: 4px; }
   button.primary {
-    width: 100%; padding: 9px 12px; border: 0; border-radius: 7px; background: var(--accent);
-    color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+    width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff; font: inherit; font-weight: 650; cursor: pointer; transition: filter .15s, transform .05s;
   }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  button.primary:active:not(:disabled) { transform: translateY(1px); }
   button.primary:disabled { opacity: .5; cursor: not-allowed; }
   .msg { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 7px; }
   .msg.ok { background: var(--ok-soft); color: var(--ok); }
@@ -114,12 +133,25 @@
 
   /* Jobs list */
   .jobs { flex: 1; display: flex; flex-direction: column; }
-  .jobs-list { overflow-y: auto; margin: 0 -8px; flex: 1; }
+  .jobs-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; }
   .job {
-    padding: 10px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);
+    border-left: 4px solid var(--muted); background: var(--panel);
   }
+  .job.running { border-left-color: var(--accent); }
+  .job.completed { border-left-color: var(--ok); }
+  .job.failed, .job.interrupted { border-left-color: var(--err); }
+  .job.queued { border-left-color: var(--warn); }
   .job:hover { background: var(--panel-2); }
   .job.sel { background: var(--accent-soft); border-color: var(--accent); }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; margin-top: 8px; border-top: 1px solid var(--border); }
+  .pager span { font-size: 12px; color: var(--muted); }
+  .pager button {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 7px;
+    padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .pager button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .pager button:disabled { opacity: .45; cursor: not-allowed; }
   .job .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
   .job .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .job .meta { color: var(--muted); font-size: 12px; margin: 2px 0 6px; display: flex; justify-content: space-between; gap: 8px; }
@@ -146,7 +178,8 @@
     flex: 1; min-width: 92px; text-align: center; font-size: 11px; color: var(--muted);
     padding-top: 8px; border-top: 3px solid var(--border); white-space: nowrap;
   }
-  .step.done { border-color: var(--ok); color: var(--text); }
+  .step { border-radius: 2px; }
+  .step.done { border-color: var(--ok); color: var(--ok); font-weight: 600; }
   .step.cur { border-color: var(--accent); color: var(--accent); font-weight: 650; }
   .step.cur.pulse { animation: pulse 1.4s ease-in-out infinite; }
   .step.fail { border-color: var(--err); color: var(--err); font-weight: 650; }
@@ -181,6 +214,12 @@
   .ln.DEBUG .l { color: var(--log-muted); }
   .ln.STAGE { background: rgba(164,142,240,.12); }
   .ln.STAGE .l, .ln.STAGE .m { color: #c3b4ff; font-weight: 600; }
+  .head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .close-btn {
+    border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 7px;
+    padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .close-btn:hover { color: var(--text, inherit); background: var(--accent-soft); }
   .placeholder { color: var(--muted); display: flex; align-items: center; justify-content: center; flex: 1; text-align: center; padding: 40px; }
 </style>
 </head>
@@ -210,20 +249,28 @@
     </form>
 
     <section class="card jobs">
-      <h2>Jobs</h2>
+      <h2>Jobs <span class="count" id="jobsCount"></span></h2>
       <div class="jobs-list" id="jobsList"><div class="empty">No ingestions yet</div></div>
+      <div class="pager" id="pager" hidden>
+        <button type="button" id="prevPage">‹ Prev</button>
+        <span id="pageInfo"></span>
+        <button type="button" id="nextPage">Next ›</button>
+      </div>
     </section>
   </div>
 
   <section class="card detail" id="detail">
-    <div class="placeholder" id="placeholder">Select a job to see its live log</div>
+    <div class="placeholder" id="placeholder">Click a job on the left to open its live dashboard and log</div>
     <div id="detailBody" class="detail-body" hidden>
       <div class="detail-head">
         <div>
           <h3 id="dName"></h3>
           <div class="kv" id="dKv"></div>
         </div>
-        <span class="badge" id="dBadge"></span>
+        <div class="head-actions">
+          <span class="badge" id="dBadge"></span>
+          <button type="button" class="close-btn" id="closeDetail" title="Close log">Close ✕</button>
+        </div>
       </div>
       <div class="stepper" id="stepper"></div>
       <div class="bar" id="dBar"><i></i></div>
@@ -261,6 +308,8 @@
   var jobES = null;
   var selectedFile = null;
   var logFilter = "all";
+  var PAGE_SIZE = 6;
+  var page = 1;
 
   function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   function load(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
@@ -342,6 +391,7 @@
         showMsg("Queued as " + body.job_id, "ok");
         pickFile(null); $("fileInput").value = "";
         $("formMsg").hidden = false;
+        page = 1;                                   // new job is on top of page 1
         upsertJob({ job_id: body.job_id, file_name: "", status: "queued", stage: "QUEUED", progress: 0, tenant_id: tenant, org_id: org, created_at: new Date().toISOString() }, true);
         selectJob(body.job_id);
       } else {
@@ -378,8 +428,7 @@
     var data = JSON.parse(e.data);
     (data.jobs || []).forEach(function (j) { jobs[j.job_id] = Object.assign(jobs[j.job_id] || {}, j); });
     renderJobs();
-    if (!selectedId && data.jobs && data.jobs.length) selectJob(data.jobs[0].job_id);
-    else if (selectedId) renderDetail();
+    if (selectedId) renderDetail();          // nothing is opened on page load; click a job to see its log
   });
   globalES.addEventListener("job", function (e) { upsertJob(JSON.parse(e.data)); });
 
@@ -410,11 +459,18 @@
     var list = $("jobsList");
     var arr = Object.keys(jobs).map(function (k) { return jobs[k]; })
       .sort(function (a, b) { return (b.created_at || "").localeCompare(a.created_at || ""); });
-    if (!arr.length) { list.innerHTML = '<div class="empty">No ingestions yet</div>'; return; }
+    $("jobsCount").textContent = arr.length ? arr.length + " total" : "";
+    if (!arr.length) { list.innerHTML = '<div class="empty">No ingestions yet</div>'; $("pager").hidden = true; return; }
+    var pages = Math.max(1, Math.ceil(arr.length / PAGE_SIZE));
+    if (page > pages) page = pages;
+    $("pager").hidden = pages <= 1;
+    $("pageInfo").textContent = "Page " + page + " of " + pages;
+    $("prevPage").disabled = page <= 1;
+    $("nextPage").disabled = page >= pages;
     list.textContent = "";
-    arr.forEach(function (j) {
+    arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).forEach(function (j) {
       var el = document.createElement("div");
-      el.className = "job" + (j.job_id === selectedId ? " sel" : "");
+      el.className = "job " + (j.status || "") + (j.job_id === selectedId ? " sel" : "");
       el.dataset.id = j.job_id;
 
       var r1 = document.createElement("div"); r1.className = "row1";
@@ -436,6 +492,9 @@
       list.appendChild(el);
     });
   }
+
+  $("prevPage").addEventListener("click", function () { if (page > 1) { page--; renderJobs(); } });
+  $("nextPage").addEventListener("click", function () { page++; renderJobs(); });
 
   // ---------------- Job detail + live log ----------------
   function selectJob(id) {
@@ -460,6 +519,16 @@
     });
     es.addEventListener("done", function () { es.close(); if (jobES === es) jobES = null; });
   }
+
+  function closeDetail() {
+    if (jobES) { jobES.close(); jobES = null; }
+    selectedId = null;
+    $("log").textContent = "";
+    $("detailBody").hidden = true;
+    $("placeholder").hidden = false;
+    renderJobs();
+  }
+  $("closeDetail").addEventListener("click", closeDetail);
 
   function appendLog(ev) {
     var log = $("log");
