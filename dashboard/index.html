@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ingestion Console</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --panel-2: #f0f2f5;
+    --border: #e1e4e9;
+    --text: #1b1f24;
+    --muted: #677180;
+    --accent: #2f6fde;
+    --accent-soft: #e5eefc;
+    --ok: #1d8a4e;
+    --ok-soft: #e3f4ea;
+    --warn: #b86e00;
+    --warn-soft: #fbf0dc;
+    --err: #c8372d;
+    --err-soft: #fbe6e4;
+    --stage: #6b47c9;
+    --log-bg: #11151b;
+    --log-text: #d6dbe2;
+    --log-muted: #7d8794;
+    --radius: 10px;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --panel: #171b21;
+      --panel-2: #1e232b;
+      --border: #2a3039;
+      --text: #e4e8ee;
+      --muted: #8b95a3;
+      --accent: #5b92f0;
+      --accent-soft: #1d2a40;
+      --ok: #45b97a;
+      --ok-soft: #16301f;
+      --warn: #e0a040;
+      --warn-soft: #33270f;
+      --err: #ef6a5f;
+      --err-soft: #3a1a18;
+      --stage: #a48ef0;
+      --log-bg: #0a0c10;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  .detail-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .dot.down { background: var(--err); }
+
+  main {
+    display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px;
+    padding: 16px 20px; height: calc(100vh - 57px);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; height: auto; }
+  }
+  .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; min-height: 0;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+
+  /* Upload form */
+  label.field { display: block; margin-bottom: 10px; }
+  label.field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text] {
+    width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font: inherit;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .drop {
+    border: 1.5px dashed var(--border); border-radius: 8px; padding: 18px 12px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; margin-bottom: 12px;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { color: var(--text); display: block; word-break: break-all; }
+  .drop small { display: block; margin-top: 4px; }
+  button.primary {
+    width: 100%; padding: 9px 12px; border: 0; border-radius: 7px; background: var(--accent);
+    color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  .msg { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 7px; }
+  .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.err { background: var(--err-soft); color: var(--err); }
+  .bar { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .bar.ok > i { background: var(--ok); }
+  .bar.err > i { background: var(--err); }
+  #uploadBar { margin-top: 10px; }
+
+  /* Jobs list */
+  .jobs { flex: 1; display: flex; flex-direction: column; }
+  .jobs-list { overflow-y: auto; margin: 0 -8px; flex: 1; }
+  .job {
+    padding: 10px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+  }
+  .job:hover { background: var(--panel-2); }
+  .job.sel { background: var(--accent-soft); border-color: var(--accent); }
+  .job .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .job .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job .meta { color: var(--muted); font-size: 12px; margin: 2px 0 6px; display: flex; justify-content: space-between; gap: 8px; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
+
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; white-space: nowrap;
+    background: var(--panel-2); color: var(--muted);
+  }
+  .badge.running { background: var(--accent-soft); color: var(--accent); }
+  .badge.completed { background: var(--ok-soft); color: var(--ok); }
+  .badge.failed, .badge.interrupted { background: var(--err-soft); color: var(--err); }
+  .badge.queued { background: var(--warn-soft); color: var(--warn); }
+
+  /* Detail */
+  .detail { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .detail-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .detail-head h3 { margin: 0; font-size: 16px; word-break: break-all; }
+  .kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .kv b { color: var(--text); font-weight: 600; }
+
+  .stepper { display: flex; gap: 4px; margin: 16px 0 6px; overflow-x: auto; padding-bottom: 2px; }
+  .step {
+    flex: 1; min-width: 92px; text-align: center; font-size: 11px; color: var(--muted);
+    padding-top: 8px; border-top: 3px solid var(--border); white-space: nowrap;
+  }
+  .step.done { border-color: var(--ok); color: var(--text); }
+  .step.cur { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+  .step.cur.pulse { animation: pulse 1.4s ease-in-out infinite; }
+  .step.fail { border-color: var(--err); color: var(--err); font-weight: 650; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .stage-detail { font-size: 12px; color: var(--muted); margin-bottom: 12px; min-height: 18px; }
+  .stage-detail b { color: var(--text); }
+
+  .errbox { background: var(--err-soft); color: var(--err); padding: 8px 10px; border-radius: 7px; font-size: 13px; margin-bottom: 12px; word-break: break-word; }
+  .result { background: var(--ok-soft); color: var(--text); padding: 8px 10px; border-radius: 7px; font-size: 12px; margin-bottom: 12px; }
+  .result b { color: var(--ok); }
+
+  .log-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .seg button {
+    border: 0; background: transparent; color: var(--muted); padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .log-tools label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .log {
+    flex: 1; min-height: 280px; overflow: auto; background: var(--log-bg); color: var(--log-text);
+    border-radius: 8px; padding: 10px 0; font: 12px/1.55 var(--mono);
+  }
+  .ln { display: grid; grid-template-columns: 64px 72px 1fr; gap: 8px; padding: 0 12px; white-space: pre-wrap; word-break: break-word; }
+  .ln:hover { background: rgba(255,255,255,.04); }
+  .ln .t { color: var(--log-muted); }
+  .ln .l { font-weight: 600; }
+  .ln.INFO .l { color: #7fb0ff; }
+  .ln.SUCCESS .l { color: #5fd38d; }
+  .ln.WARNING .l { color: #f0b252; }
+  .ln.WARNING .m { color: #f3d29a; }
+  .ln.ERROR .l, .ln.ERROR .m { color: #ff7b72; }
+  .ln.DEBUG .l { color: var(--log-muted); }
+  .ln.STAGE { background: rgba(164,142,240,.12); }
+  .ln.STAGE .l, .ln.STAGE .m { color: #c3b4ff; font-weight: 600; }
+  .placeholder { color: var(--muted); display: flex; align-items: center; justify-content: center; flex: 1; text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Ingestion Console</h1>
+    <div class="sub">Upload Excel / CSV files and watch every ingestion stage live</div>
+  </div>
+  <div class="conn"><span id="connDot" class="dot"></span><span id="connText">Connecting…</span></div>
+</header>
+
+<main>
+  <div class="col">
+    <form class="card" id="uploadForm" autocomplete="off">
+      <h2>New ingestion</h2>
+      <label class="field"><span>Tenant ID</span><input type="text" id="tenantId" placeholder="e.g. DM00005" required maxlength="64"></label>
+      <label class="field"><span>Org ID</span><input type="text" id="orgId" placeholder="e.g. OM0000000002" required maxlength="64"></label>
+      <div class="drop" id="drop" tabindex="0">
+        <strong id="dropName">Drop a file here or click to choose</strong>
+        <small id="dropHint">.xlsx, .xls, .csv · max 5 MB</small>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      <button class="primary" id="submitBtn" type="submit">Upload &amp; ingest</button>
+      <div class="bar" id="uploadBar" hidden><i></i></div>
+      <div class="msg" id="formMsg" hidden></div>
+    </form>
+
+    <section class="card jobs">
+      <h2>Jobs</h2>
+      <div class="jobs-list" id="jobsList"><div class="empty">No ingestions yet</div></div>
+    </section>
+  </div>
+
+  <section class="card detail" id="detail">
+    <div class="placeholder" id="placeholder">Select a job to see its live log</div>
+    <div id="detailBody" class="detail-body" hidden>
+      <div class="detail-head">
+        <div>
+          <h3 id="dName"></h3>
+          <div class="kv" id="dKv"></div>
+        </div>
+        <span class="badge" id="dBadge"></span>
+      </div>
+      <div class="stepper" id="stepper"></div>
+      <div class="bar" id="dBar"><i></i></div>
+      <div class="stage-detail" id="dStage" style="margin-top:8px"></div>
+      <div class="errbox" id="dError" hidden></div>
+      <div class="result" id="dResult" hidden></div>
+      <div class="log-tools">
+        <div class="seg" id="filterSeg">
+          <button type="button" data-f="all" class="on">All</button>
+          <button type="button" data-f="stage">Stages</button>
+          <button type="button" data-f="issues">Warnings &amp; errors</button>
+        </div>
+        <label><input type="checkbox" id="autoScroll" checked> Auto-scroll</label>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var MAX_BYTES = 5 * 1024 * 1024;
+  var ALLOWED = [".xlsx", ".xls", ".csv"];
+  var STEPS = ["QUEUED", "READING_FILE", "AI_CLASSIFICATION", "PROCESS_METADATA", "THEME_MAPPING", "UPSERT", "EXPORT", "COMPLETED"];
+  var STEP_LABEL = {
+    QUEUED: "Queued", READING_FILE: "Reading file", AI_CLASSIFICATION: "AI classify",
+    PROCESS_METADATA: "Process", THEME_MAPPING: "Theme map", UPSERT: "Upsert", EXPORT: "Export", COMPLETED: "Done"
+  };
+  var MAX_LOG_LINES = 5000;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var jobs = {};
+  var selectedId = null;
+  var jobES = null;
+  var selectedFile = null;
+  var logFilter = "all";
+
+  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+
+  // ---------------- Upload form ----------------
+  $("tenantId").value = load("ingest.tenant");
+  $("orgId").value = load("ingest.org");
+
+  function fmtBytes(n) {
+    if (n == null) return "";
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(2) + " MB";
+  }
+  function showMsg(text, kind) {
+    var m = $("formMsg");
+    m.textContent = text; m.className = "msg " + kind; m.hidden = false;
+  }
+  function validateFile(f) {
+    if (!f) return "Choose a file to upload.";
+    var name = f.name.toLowerCase();
+    var ok = ALLOWED.some(function (ext) { return name.slice(-ext.length) === ext; });
+    if (!ok) return "Unsupported file type. Allowed: " + ALLOWED.join(", ");
+    if (f.size === 0) return "File is empty.";
+    if (f.size > MAX_BYTES) return "File is " + fmtBytes(f.size) + ". Maximum allowed size is 5 MB.";
+    return null;
+  }
+  function pickFile(f) {
+    selectedFile = f || null;
+    $("formMsg").hidden = true;
+    if (!f) { $("dropName").textContent = "Drop a file here or click to choose"; $("dropHint").textContent = ".xlsx, .xls, .csv · max 5 MB"; return; }
+    $("dropName").textContent = f.name;
+    var err = validateFile(f);
+    $("dropHint").textContent = fmtBytes(f.size) + (err ? "" : " · ready");
+    if (err) showMsg(err, "err");
+  }
+  var drop = $("drop");
+  drop.addEventListener("click", function () { $("fileInput").click(); });
+  drop.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } });
+  $("fileInput").addEventListener("change", function (e) { pickFile(e.target.files[0]); });
+  ["dragenter", "dragover"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function (e) { if (e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]); });
+
+  $("uploadForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var tenant = $("tenantId").value.trim();
+    var org = $("orgId").value.trim();
+    if (!tenant || !org) { showMsg("Tenant ID and Org ID are required.", "err"); return; }
+    var err = validateFile(selectedFile);
+    if (err) { showMsg(err, "err"); return; }
+    store("ingest.tenant", tenant); store("ingest.org", org);
+
+    var fd = new FormData();
+    fd.append("tenant_id", tenant);
+    fd.append("org_id", org);
+    fd.append("file", selectedFile);
+
+    var btn = $("submitBtn"), bar = $("uploadBar");
+    btn.disabled = true; btn.textContent = "Uploading…";
+    bar.hidden = false; bar.className = "bar"; bar.firstElementChild.style.width = "0%";
+    $("formMsg").hidden = true;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/ingest/upload");
+    xhr.upload.onprogress = function (ev) {
+      if (ev.lengthComputable) bar.firstElementChild.style.width = Math.round(ev.loaded / ev.total * 100) + "%";
+    };
+    xhr.onload = function () {
+      btn.disabled = false; btn.textContent = "Upload & ingest";
+      var body = {};
+      try { body = JSON.parse(xhr.responseText); } catch (x) {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        bar.className = "bar ok"; bar.firstElementChild.style.width = "100%";
+        showMsg("Queued as " + body.job_id, "ok");
+        pickFile(null); $("fileInput").value = "";
+        $("formMsg").hidden = false;
+        upsertJob({ job_id: body.job_id, file_name: "", status: "queued", stage: "QUEUED", progress: 0, tenant_id: tenant, org_id: org, created_at: new Date().toISOString() }, true);
+        selectJob(body.job_id);
+      } else {
+        bar.className = "bar err"; bar.firstElementChild.style.width = "100%";
+        var detail = body.detail;
+        if (Array.isArray(detail)) detail = detail.map(function (d) { return d.msg; }).join("; ");
+        showMsg(detail || ("Upload failed (HTTP " + xhr.status + ")"), "err");
+      }
+    };
+    xhr.onerror = function () {
+      btn.disabled = false; btn.textContent = "Upload & ingest";
+      bar.className = "bar err";
+      showMsg("Network error while uploading.", "err");
+    };
+    xhr.send(fd);
+  });
+
+  // ---------------- Jobs list (global SSE) ----------------
+  function setConn(state) {
+    $("connDot").className = "dot " + (state === "live" ? "live" : state === "down" ? "down" : "");
+    $("connText").textContent = state === "live" ? "Live" : state === "down" ? "Reconnecting…" : "Connecting…";
+  }
+  function upsertJob(j, onlyIfMissing) {
+    if (!j || !j.job_id) return;
+    if (onlyIfMissing && jobs[j.job_id]) return;
+    jobs[j.job_id] = Object.assign(jobs[j.job_id] || {}, j);
+    renderJobs();
+    if (j.job_id === selectedId) renderDetail();
+  }
+  var globalES = new EventSource("/api/jobs/stream");
+  globalES.onopen = function () { setConn("live"); };
+  globalES.onerror = function () { setConn("down"); };
+  globalES.addEventListener("snapshot", function (e) {
+    var data = JSON.parse(e.data);
+    (data.jobs || []).forEach(function (j) { jobs[j.job_id] = Object.assign(jobs[j.job_id] || {}, j); });
+    renderJobs();
+    if (!selectedId && data.jobs && data.jobs.length) selectJob(data.jobs[0].job_id);
+    else if (selectedId) renderDetail();
+  });
+  globalES.addEventListener("job", function (e) { upsertJob(JSON.parse(e.data)); });
+
+  function parseTs(s) { return s ? new Date(s) : null; }
+  function duration(j) {
+    var a = parseTs(j.started_at); if (!a) return "";
+    var b = parseTs(j.finished_at) || new Date();
+    var s = Math.max(0, Math.round((b - a) / 1000));
+    return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + (s % 60) + "s";
+  }
+  function timeOnly(s) {
+    var d = parseTs(s); if (!d || isNaN(d)) return "";
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function stageText(j) {
+    if (j.status === "completed") return "Completed";
+    if (j.status === "failed") return "Failed";
+    if (j.status === "interrupted") return "Interrupted";
+    var t = STEP_LABEL[j.stage] || j.stage || "";
+    if (j.sheet_index && j.total_sheets && ["AI_CLASSIFICATION", "PROCESS_METADATA", "THEME_MAPPING", "UPSERT"].indexOf(j.stage) >= 0) {
+      t += " · " + j.sheet_index + "/" + j.total_sheets;
+    }
+    return t;
+  }
+  function barClass(j) { return "bar" + (j.status === "completed" ? " ok" : (j.status === "failed" || j.status === "interrupted") ? " err" : ""); }
+
+  function renderJobs() {
+    var list = $("jobsList");
+    var arr = Object.keys(jobs).map(function (k) { return jobs[k]; })
+      .sort(function (a, b) { return (b.created_at || "").localeCompare(a.created_at || ""); });
+    if (!arr.length) { list.innerHTML = '<div class="empty">No ingestions yet</div>'; return; }
+    list.textContent = "";
+    arr.forEach(function (j) {
+      var el = document.createElement("div");
+      el.className = "job" + (j.job_id === selectedId ? " sel" : "");
+      el.dataset.id = j.job_id;
+
+      var r1 = document.createElement("div"); r1.className = "row1";
+      var nm = document.createElement("div"); nm.className = "name"; nm.textContent = j.file_name || j.job_id; nm.title = j.file_name || "";
+      var bd = document.createElement("span"); bd.className = "badge " + (j.status || ""); bd.textContent = stageText(j);
+      r1.appendChild(nm); r1.appendChild(bd);
+
+      var meta = document.createElement("div"); meta.className = "meta";
+      var left = document.createElement("span"); left.textContent = (j.tenant_id || "") + " · " + (j.org_id || "");
+      var right = document.createElement("span"); right.className = "dur"; right.textContent = duration(j) || timeOnly(j.created_at);
+      meta.appendChild(left); meta.appendChild(right);
+
+      var bar = document.createElement("div"); bar.className = barClass(j);
+      var fill = document.createElement("i"); fill.style.width = (j.status === "failed" || j.status === "interrupted" ? 100 : (j.progress || 0)) + "%";
+      bar.appendChild(fill);
+
+      el.appendChild(r1); el.appendChild(meta); el.appendChild(bar);
+      el.addEventListener("click", function () { selectJob(j.job_id); });
+      list.appendChild(el);
+    });
+  }
+
+  // ---------------- Job detail + live log ----------------
+  function selectJob(id) {
+    if (!id) return;
+    if (id === selectedId && jobES) return;
+    selectedId = id;
+    if (jobES) { jobES.close(); jobES = null; }
+    $("log").textContent = "";
+    $("placeholder").hidden = true;
+    $("detailBody").hidden = false;
+    renderJobs();
+    renderDetail();
+
+    var es = new EventSource("/api/jobs/" + encodeURIComponent(id) + "/stream");
+    jobES = es;
+    es.addEventListener("job", function (e) { if (jobES === es) upsertJob(JSON.parse(e.data)); });
+    es.addEventListener("log", function (e) { if (jobES === es) appendLog(JSON.parse(e.data)); });
+    es.addEventListener("stage", function (e) {
+      if (jobES !== es) return;
+      var s = JSON.parse(e.data);
+      upsertJob({ job_id: id, stage: s.stage, progress: s.progress, sheet_index: s.sheet_index, total_sheets: s.total_sheets, stage_detail: s.detail });
+    });
+    es.addEventListener("done", function () { es.close(); if (jobES === es) jobES = null; });
+  }
+
+  function appendLog(ev) {
+    var log = $("log");
+    var ln = document.createElement("div");
+    ln.className = "ln " + (ev.level || "INFO");
+    ln.dataset.level = ev.level || "INFO";
+    var t = document.createElement("span"); t.className = "t"; t.textContent = timeOnly(ev.ts);
+    var l = document.createElement("span"); l.className = "l"; l.textContent = ev.level || "INFO";
+    var m = document.createElement("span"); m.className = "m"; m.textContent = ev.msg;
+    ln.appendChild(t); ln.appendChild(l); ln.appendChild(m);
+    ln.hidden = !passesFilter(ln.dataset.level);
+    log.appendChild(ln);
+    while (log.childElementCount > MAX_LOG_LINES) log.removeChild(log.firstElementChild);
+    if ($("autoScroll").checked) log.scrollTop = log.scrollHeight;
+  }
+  function passesFilter(level) {
+    if (logFilter === "all") return true;
+    if (logFilter === "stage") return level === "STAGE" || level === "SUCCESS" || level === "ERROR";
+    return level === "WARNING" || level === "ERROR";
+  }
+  $("filterSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    logFilter = b.dataset.f;
+    Array.prototype.forEach.call(this.children, function (c) { c.classList.toggle("on", c === b); });
+    Array.prototype.forEach.call($("log").children, function (ln) { ln.hidden = !passesFilter(ln.dataset.level); });
+    if ($("autoScroll").checked) $("log").scrollTop = $("log").scrollHeight;
+  });
+
+  function kv(label, value) {
+    var s = document.createElement("span");
+    s.appendChild(document.createTextNode(label + " "));
+    var b = document.createElement("b"); b.textContent = value; s.appendChild(b);
+    return s;
+  }
+
+  function renderDetail() {
+    var j = jobs[selectedId]; if (!j) return;
+    $("dName").textContent = j.file_name || j.job_id;
+    var k = $("dKv"); k.textContent = "";
+    k.appendChild(kv("Job", j.job_id));
+    k.appendChild(kv("Tenant", j.tenant_id || "-"));
+    k.appendChild(kv("Org", j.org_id || "-"));
+    if (j.file_size) k.appendChild(kv("Size", fmtBytes(j.file_size)));
+    if (j.started_at) k.appendChild(kv("Duration", duration(j)));
+    var badge = $("dBadge"); badge.className = "badge " + (j.status || ""); badge.textContent = (j.status || "").toUpperCase();
+
+    // Stepper
+    var failed = j.status === "failed" || j.status === "interrupted";
+    var curIdx = STEPS.indexOf(j.stage);
+    if (j.status === "completed") curIdx = STEPS.length - 1;
+    var st = $("stepper"); st.textContent = "";
+    STEPS.forEach(function (s, i) {
+      var d = document.createElement("div"); d.className = "step";
+      if (i < curIdx || (j.status === "completed")) d.classList.add("done");
+      if (i === curIdx && j.status !== "completed") {
+        d.classList.add(failed ? "fail" : "cur");
+        if (j.status === "running") d.classList.add("pulse");
+      }
+      d.textContent = STEP_LABEL[s];
+      st.appendChild(d);
+    });
+
+    var bar = $("dBar"); bar.className = barClass(j);
+    bar.firstElementChild.style.width = (failed ? 100 : (j.progress || 0)) + "%";
+
+    var sd = $("dStage"); sd.textContent = "";
+    if (j.sheet_index && j.total_sheets && !failed && j.status !== "completed") {
+      sd.appendChild(kv("Sheet", j.sheet_index + " of " + j.total_sheets));
+      sd.appendChild(document.createTextNode("  "));
+    }
+    if (j.stage_detail) sd.appendChild(document.createTextNode(j.stage_detail));
+    else if (j.status === "queued") sd.appendChild(document.createTextNode("Waiting for a free worker…"));
+
+    var eb = $("dError");
+    if (j.error) { eb.textContent = j.error; eb.hidden = false; } else { eb.hidden = true; }
+
+    var rb = $("dResult");
+    var r = j.result;
+    if (j.status === "completed" && r) {
+      rb.textContent = "";
+      var head = document.createElement("b"); head.textContent = "Ingested into " + (r.target_table || "-");
+      rb.appendChild(head);
+      var sheets = (r.sheets || []).join(", ");
+      rb.appendChild(document.createTextNode(" · " + (r.total_sheets || 0) + " sheet(s)" + (sheets ? ": " + sheets : "")));
+      var files = r.exported_files && typeof r.exported_files === "object" ? Object.values(r.exported_files).filter(Boolean) : [];
+      if (files.length) {
+        var f = document.createElement("div"); f.style.marginTop = "4px"; f.style.color = "var(--muted)";
+        f.textContent = "Exports: " + files.join(" | ");
+        rb.appendChild(f);
+      }
+      rb.hidden = false;
+    } else {
+      rb.hidden = true;
+    }
+  }
+
+  // Tick running durations
+  setInterval(function () {
+    var running = Object.keys(jobs).some(function (k) { return jobs[k].status === "running"; });
+    if (!running) return;
+    Array.prototype.forEach.call(document.querySelectorAll(".job"), function (el) {
+      var j = jobs[el.dataset.id]; if (j && j.status === "running") el.querySelector(".dur").textContent = duration(j);
+    });
+    var sel = jobs[selectedId];
+    if (sel && sel.status === "running") renderDetail();
+  }, 1000);
+})();
+</script>
+</body>
+</html>

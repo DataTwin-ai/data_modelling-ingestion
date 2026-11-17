@@ -55,11 +55,30 @@ log_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 log_filename = f"{log_file_prefix}_{log_timestamp}.{log_extension}"
 LOG_FILE_PATH = os.path.join(BASE_DIR, log_filename)
 
+# Dashboard job hooks: per-job live log capture + pipeline stage tracking.
+try:
+    from job_manager import capture_output as _job_capture_output, set_stage
+except Exception:
+    _job_capture_output = None
+
+    def set_stage(*args, **kwargs):
+        pass
+
+
 class DualLogger:
-    def __init__(self, filepath, stream):
+    _is_dual_logger = True
+
+    def __init__(self, filepath, stream, is_err=False):
         self.stream = stream
         self.filepath = filepath
+        self.is_err = is_err
         self._file = None
+
+    def __getattr__(self, name):
+        # Delegate isatty/fileno/encoding/etc. to the wrapped stream (needed by uvicorn logging).
+        if name == 'stream':
+            raise AttributeError(name)
+        return getattr(self.stream, name)
 
     def _get_file(self):
         if self._file is None or self._file.closed:
@@ -79,6 +98,13 @@ class DualLogger:
             f.flush()
         except Exception:
             pass
+        # Forward to the dashboard job log (only if the wrapped stream is not
+        # itself a DualLogger, so a line is never captured twice).
+        if _job_capture_output is not None and not getattr(self.stream, '_is_dual_logger', False):
+            try:
+                _job_capture_output(message, self.is_err)
+            except Exception:
+                pass
 
     def flush(self):
         if self.stream:
@@ -92,16 +118,20 @@ class DualLogger:
             except Exception:
                 pass
 
-if not isinstance(sys.stdout, DualLogger):
+if not getattr(sys.stdout, '_is_dual_logger', False):
     sys.stdout = DualLogger(LOG_FILE_PATH, sys.stdout)
-if not isinstance(sys.stderr, DualLogger):
-    sys.stderr = DualLogger(LOG_FILE_PATH, sys.stderr)
+if not getattr(sys.stderr, '_is_dual_logger', False):
+    sys.stderr = DualLogger(LOG_FILE_PATH, sys.stderr, is_err=True)
 
 # Credentials & Database Configuration from config.ini
 ec2IP = config.get(env, 'ec2_ip')
 port = config.getint(env, 'port')
 db_user = config.get(env, 'db_user')
 db_password = config.get(env, 'db_password')
+# Optional single database for all tenants (e.g. 'darp'); empty -> one database per tenant (legacy).
+db_name = (os.environ.get('DB_NAME') or config.get(env, 'db_name', fallback='')).strip()
+# Schema that holds the tables (e.g. 'DataTwin'); set as search_path on every connection.
+table_schema = (os.environ.get('DB_TABLE_SCHEMA') or config.get(env, 'table_schema', fallback='public')).strip() or 'public'
 regionName = config.get(env, 'region_name')
 suffixDb = config.get(env, 'suffix_db')
 suffixS3 = config.get(env, 'suffix_s3')
@@ -113,6 +143,12 @@ gemini_model_name = config.get('gemini', 'model_name', fallback='gemini-2.5-flas
 
 # Centralized Queries loaded from config.ini [querys] section
 QUERIES = dict(config.items('querys')) if config.has_section('querys') else {}
+
+# Extra columns every row of a process table must carry ([table_new_columns]: PROCESSCODE = col1, col2)
+TABLE_NEW_COLUMNS = {
+    k.strip().upper(): [c.strip().lower() for c in v.split(',') if c.strip()]
+    for k, v in (config.items('table_new_columns') if config.has_section('table_new_columns') else [])
+}
 
 # -------------------------------------------------------------------------
 # Custom Logger (clog)
@@ -222,19 +258,158 @@ s3=client("s3",region_name=regionName)
 
 ######################################## Database Functions ###########################################
 
+class TenantConnection(psycopg2.extensions.connection):
+    """psycopg2 connection that remembers which tenant it serves (None = common catalog)."""
+    tenant_id = None
+
+
+COMMON_DB_KEY = "DataTwin_DB"
+TENANT_COLUMN = "tenant_id"
+# Tables shared by all tenants in one schema; rows are partitioned by the tenant_id column.
+# active_* / inactive_* tables are always tenant-scoped as well (see is_tenant_scoped_table).
+TENANT_SCOPED_TABLES = {"theme_mapping", "transaction_log"}
+_TENANT_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+_TENANT_PARTITION_READY = set()
+
+
+def normalize_tenant_id(tenant_id):
+    """Canonical tenant id stored in the tenant_id column (trimmed, upper-case)."""
+    return str(tenant_id or "").strip().upper()
+
+
+def sql_tenant_literal(tenant_id):
+    """Validated tenant id that is safe to embed in a SQL string literal."""
+    t = normalize_tenant_id(tenant_id)
+    if not _TENANT_ID_RE.match(t):
+        raise ValueError(f"Invalid tenant id '{tenant_id}'")
+    return t
+
+
+# Tenant partitioning (tenant_id column in shared tables) is only active when all tenants share
+# one database (db_name set). In legacy one-database-per-tenant mode the database itself is the
+# tenant boundary and the original table layout / queries are used unchanged.
+SHARED_SCHEMA = bool(db_name)
+
+
+def tenant_filter(tenant_id, alias=""):
+    """SQL prefix "tenant_id = '<T>' AND " in shared mode, "" in legacy per-tenant mode."""
+    if not SHARED_SCHEMA:
+        return ""
+    col = f"{alias}." if alias else ""
+    return f"{col}tenant_id = '{sql_tenant_literal(tenant_id)}' AND "
+
+
+def conn_tenant(conn):
+    """Tenant id a connection was opened for; raises for common/catalog connections."""
+    t = getattr(conn, "tenant_id", None)
+    if not t:
+        raise ValueError("Tenant-scoped query attempted on a connection without a tenant_id.")
+    return t
+
+
+def is_tenant_scoped_table(table_name):
+    name = str(table_name or "").replace('"', "").split(".")[-1].strip().lower()
+    return name in TENANT_SCOPED_TABLES or name.startswith("active_") or name.startswith("inactive_")
+
+
+def ensure_tenant_partition(conn, table_name):
+    """
+    Make sure a shared table is partitioned by tenant:
+    - adds the tenant_id column if missing,
+    - makes tenant_id the leading primary-key column (so tenants never overwrite each other),
+    - or adds a tenant_id index when the table has no primary key.
+    Cached per table for the life of the process.
+    """
+    if not SHARED_SCHEMA:
+        return
+    tbl = str(table_name).replace('"', "").split(".")[-1].strip().lower()
+    if tbl in _TENANT_PARTITION_READY:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(QUERIES['check_table_exists'], (tbl,))
+            if not cur.fetchone():
+                return  # created later by createtableinPostgres with tenant_id already in the PK
+            ident = sql.Identifier(tbl)
+            cur.execute(sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS tenant_id text DEFAULT ''").format(ident))
+            cur.execute(sql.SQL("UPDATE {} SET tenant_id = '' WHERE tenant_id IS NULL").format(ident))
+            cur.execute("""
+                SELECT c.conname, array_agg(a.attname::text ORDER BY k.ord)
+                FROM pg_constraint c
+                CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+                WHERE c.conrelid = to_regclass(%s) AND c.contype = 'p'
+                GROUP BY c.conname
+            """, (tbl,))
+            pk_row = cur.fetchone()
+            if pk_row:
+                pk_name, pk_cols = pk_row[0], list(pk_row[1] or [])
+                if TENANT_COLUMN not in pk_cols:
+                    new_cols = [TENANT_COLUMN] + pk_cols
+                    cur.execute(sql.SQL("ALTER TABLE {} DROP CONSTRAINT {}, ADD PRIMARY KEY ({})").format(
+                        ident, sql.Identifier(pk_name), sql.SQL(", ").join(sql.Identifier(c) for c in new_cols)
+                    ))
+                    clog(f"Tenant partitioning: primary key of '{tbl}' is now ({', '.join(new_cols)})", "SUCCESS")
+            else:
+                cur.execute(sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} (tenant_id)").format(
+                    sql.Identifier(f"{tbl}_tenant_id_idx"), ident
+                ))
+        conn.commit()
+        _TENANT_PARTITION_READY.add(tbl)
+    except Exception as e:
+        conn.rollback()
+        clog(f"Tenant partitioning check failed for '{tbl}': {e}", "WARNING")
+
+
+def ensure_tenant_partitioning_all(conn):
+    """Apply ensure_tenant_partition to every tenant-scoped table in the configured schema."""
+    if not SHARED_SCHEMA:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND (table_name LIKE 'active\\_%%' OR table_name LIKE 'inactive\\_%%' OR table_name = ANY(%s))
+            """, (list(TENANT_SCOPED_TABLES),))
+            tables = [r[0] for r in cur.fetchall()]
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        clog(f"Tenant partitioning scan failed: {e}", "WARNING")
+        return
+    for tbl in tables:
+        ensure_tenant_partition(conn, tbl)
+
+
 def ec2confic(tenantID):
-    "connects to ec2 instance and returns connection object using config.ini credentials."
-    if tenantID != "DataTwin_DB":
-        tenantID = tenantID.lower()  
+    """
+    Connects to the PostgreSQL server using config.ini credentials.
+    - If `db_name` is configured (env var DB_NAME or [env] db_name), every
+      connection goes to that single database (e.g. 'darp'); otherwise the
+      legacy one-database-per-tenant naming is used.
+    - The session search_path is set to the configured `table_schema`
+      (env var DB_TABLE_SCHEMA or [env] table_schema), so unqualified table
+      names and current_schema() resolve to that schema.
+    """
+    if db_name:
+        target_db = db_name
+    elif tenantID != "DataTwin_DB":
+        target_db = tenantID.lower()
     else:
-        tenantID = tenantID
+        target_db = tenantID
     conn = psycopg2.connect(
         host = ec2IP,
         port = port,
-        dbname = tenantID,
+        dbname = target_db,
         user = db_user,
-        password = db_password
+        password = db_password,
+        connection_factory = TenantConnection
     )
+    conn.tenant_id = None if tenantID == COMMON_DB_KEY else normalize_tenant_id(tenantID)
+    with conn.cursor() as cur:
+        cur.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(table_schema)))
+    conn.commit()
     return conn
 
 def fetch_data_from_db(db_conn, query):
@@ -272,6 +447,63 @@ def _to_sql_col_name(name):
     if s[0].isdigit():
         s = f"col_{s}"
     return s[:63]
+
+
+_PERIOD_COL_RE = re.compile(r"^([a-z][a-z0-9_]*?)_(\d{1,2})_(\d{1,2})_(\d{2}|\d{4})$")
+
+
+def _canonical_period_column_names(sql_cols):
+    """
+    Map date-stamped column names to stable, period-relative names so every
+    financial year lands in the same DB columns, e.g.
+        total_31_03_2023 / total_31_03_2022 -> total_current / total_prior
+        gross_01_04_22   / gross_31_03_23   -> gross_opening / gross_closing
+    Rules per prefix:
+      - a group containing a day-1 date (period start): day-1 -> <prefix>_opening,
+        other dates -> <prefix>_closing
+      - otherwise (period-end dates only): latest year -> <prefix>_current,
+        the next one -> <prefix>_prior
+      - a lone period-end column is current if its year is the latest year seen
+        among all date-stamped columns, else prior.
+    Returns {old_name: new_name}; names that would collide are left unchanged.
+    """
+    groups = {}
+    max_year = None
+    for col in sql_cols:
+        m = _PERIOD_COL_RE.match(str(col or ""))
+        if not m:
+            continue
+        prefix, dd, mm, yy = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        if not (1 <= dd <= 31 and 1 <= mm <= 12):
+            continue
+        year = yy + 2000 if yy < 100 else yy
+        groups.setdefault(prefix, []).append((col, dd, mm, year))
+        max_year = year if max_year is None else max(max_year, year)
+
+    renames = {}
+    for prefix, items in groups.items():
+        has_start = any(dd == 1 for _, dd, _, _ in items)
+        if has_start:
+            starts = [i for i in items if i[1] == 1]
+            ends = [i for i in items if i[1] != 1]
+            if len(starts) == 1:
+                renames[starts[0][0]] = f"{prefix}_opening"
+            if len(ends) == 1:
+                renames[ends[0][0]] = f"{prefix}_closing"
+        else:
+            ordered = sorted(items, key=lambda i: (i[3], i[2], i[1]), reverse=True)
+            if len(ordered) == 1:
+                renames[ordered[0][0]] = f"{prefix}_current" if ordered[0][3] == max_year else f"{prefix}_prior"
+            elif len(ordered) == 2 and ordered[0][3] != ordered[1][3]:
+                renames[ordered[0][0]] = f"{prefix}_current"
+                renames[ordered[1][0]] = f"{prefix}_prior"
+
+    existing = set(sql_cols)
+    targets = list(renames.values())
+    return {
+        old: new for old, new in renames.items()
+        if new not in existing and targets.count(new) == 1
+    }
 
 
 def _coerce_extra_column_series(series):
@@ -350,7 +582,7 @@ def ensure_tablecode_on_all_tables(conn, backfill=True):
             cur.execute("""
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = 'public'
+                WHERE table_schema = current_schema()
                   AND (table_name LIKE 'active_%' OR table_name LIKE 'inactive_%')
                 ORDER BY table_name
             """)
@@ -359,7 +591,7 @@ def ensure_tablecode_on_all_tables(conn, backfill=True):
             cur.execute("""
                 SELECT table_name
                 FROM information_schema.columns
-                WHERE table_schema = 'public'
+                WHERE table_schema = current_schema()
                   AND column_name = 'tablecode'
                   AND (table_name LIKE 'active_%' OR table_name LIKE 'inactive_%')
             """)
@@ -375,7 +607,7 @@ def ensure_tablecode_on_all_tables(conn, backfill=True):
                 cur.execute("""
                     SELECT table_name, array_agg(column_name)
                     FROM information_schema.columns
-                    WHERE table_schema = 'public'
+                    WHERE table_schema = current_schema()
                       AND table_name LIKE 'active_%'
                     GROUP BY table_name
                 """)
@@ -445,6 +677,14 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
             cur = conn.cursor()
             created_connection = True
 
+        # Shared tables are partitioned by tenant: always write this tenant's id and key on it.
+        if SHARED_SCHEMA and is_tenant_scoped_table(table_name) and str(tenantID) != COMMON_DB_KEY:
+            ensure_tenant_partition(conn, table_name)
+            df = df.copy()
+            df[TENANT_COLUMN] = normalize_tenant_id(tenantID)
+            if TENANT_COLUMN not in [str(k).lower() for k in pk_keys]:
+                pk_keys = [TENANT_COLUMN] + list(pk_keys)
+
         if operation.lower() == 'delete':
             pk_values = [tuple(row[pk] for pk in pk_keys) for _, row in df.iterrows()]
             where_clause = " AND ".join([f"{pk} = %s" for pk in pk_keys])
@@ -464,7 +704,7 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
                 conn.rollback()
 
             # Check actual columns that exist in the target database table
-            cur.execute(QUERIES.get('check_columns', "SELECT column_name FROM information_schema.columns WHERE table_name = %s"), (table_name.lower(),))
+            cur.execute(QUERIES.get('check_columns', "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = %s"), (table_name.lower(),))
             db_cols_list = [r[0].lower() for r in cur.fetchall()]
             db_cols = set(db_cols_list)
 
@@ -653,6 +893,8 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
     return response
 
 def GetMasterObjectID(conn, masterobjName, count=1):
+    # NOTE: the sequence is intentionally global (not per tenant): IDs stay unique across
+    # all tenants sharing the schema, so they can never collide inside a shared table.
 
     try:
 
@@ -689,7 +931,7 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
     filtered_df = process[process['lde'] != 0]
     sorted_df = filtered_df.sort_values('lde')
 
-    seen_pks = set(['processcode', 'themename'])
+    seen_pks = set(['tenant_id', 'processcode', 'themename']) if SHARED_SCHEMA else set(['processcode', 'themename'])
     unique_pk_list = []
     domain_col = 'domain' if 'domain' in sorted_df.columns else 'short_text'
     for name in sorted_df[domain_col]:
@@ -700,10 +942,11 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
 
     Pks = ", ".join(unique_pk_list)
     addPks = ', "sno"' if tableCatg == 'active' else ', "sno", "inprdfrom"'
+    lead_pks = '"tenant_id", "processcode", "themename"' if SHARED_SCHEMA else '"processcode", "themename"'
     if Pks:
-        Pks = f'"processcode", "themename", {Pks}{addPks}'
+        Pks = f'{lead_pks}, {Pks}{addPks}'
     else:
-        Pks = f'"processcode", "themename"{addPks}'
+        Pks = f'{lead_pks}{addPks}'
 
     table_name = tableCatg + '_' + processCode.lower()
 
@@ -719,7 +962,7 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
             column_names.append(col)
             data_types.append(dtype)
 
-    system_cols = [
+    system_cols = ([('tenant_id', 'VARCHAR')] if SHARED_SCHEMA else []) + [
         ('sno', 'VARCHAR'),
         ('themename', 'VARCHAR'),
         ('processcode', 'VARCHAR'),
@@ -782,6 +1025,8 @@ def createtableinPostgres(process, processCode, tableCatg, tenant_cursor):
 
     tenant_cursor.execute(create_query)
     tenant_cursor.connection.commit()
+    # Table may have existed before (CREATE IF NOT EXISTS): make sure it is tenant-partitioned.
+    ensure_tenant_partition(tenant_cursor.connection, table_name)
     response = f"Created table '{table_name}'"
     clog(response, "SUCCESS")
 
@@ -791,6 +1036,8 @@ def update_transaction_log(tenant_conn, OrgID, TransactionID, attributes: dict):
     if not attributes:
         return False
 
+    tenant_val = conn_tenant(tenant_conn) if SHARED_SCHEMA else None
+    ensure_tenant_partition(tenant_conn, "transaction_log")
     try:
         with tenant_conn.cursor() as cur:
 
@@ -805,18 +1052,18 @@ def update_transaction_log(tenant_conn, OrgID, TransactionID, attributes: dict):
                     update_data[col_key] = value
 
             set_clause_str = ", ".join([f'"{col}" = %s' for col in update_data.keys()])
-            query = QUERIES.get('update_transaction_log', "UPDATE transaction_log SET {set_clause} WHERE orgid = %s AND transactionid = %s").format(
-                set_clause=set_clause_str
+            query = QUERIES.get('update_transaction_log', "UPDATE transaction_log SET {set_clause} WHERE {tenant_filter}orgid = %s AND transactionid = %s").format(
+                set_clause=set_clause_str, tenant_filter=tenant_filter(tenant_val) if SHARED_SCHEMA else ""
             )
 
             values = list(update_data.values()) + [OrgID, TransactionID]
 
             cur.execute(query, values)
             if cur.rowcount == 0:
-                insert_cols = ['orgid', 'transactionid'] + list(update_data.keys())
+                insert_cols = (['tenant_id'] if SHARED_SCHEMA else []) + ['orgid', 'transactionid'] + list(update_data.keys())
                 col_names = ", ".join([f'"{c}"' for c in insert_cols])
                 placeholders = ", ".join(['%s'] * len(insert_cols))
-                insert_vals = [OrgID, TransactionID] + list(update_data.values())
+                insert_vals = ([tenant_val] if SHARED_SCHEMA else []) + [OrgID, TransactionID] + list(update_data.values())
                 try:
                     cur.execute(f"INSERT INTO transaction_log ({col_names}) VALUES ({placeholders}) ON CONFLICT DO NOTHING;", insert_vals)
                 except Exception:
@@ -833,7 +1080,9 @@ def update_transaction_log(tenant_conn, OrgID, TransactionID, attributes: dict):
 
 def ThemeData(productCode,processCode,themeName,tenant_conn):
 
-    query = QUERIES['fetch_theme_data']
+    query = QUERIES['fetch_theme_data'].format(
+        tenant_filter=tenant_filter(conn_tenant(tenant_conn)) if SHARED_SCHEMA else ""
+    )
 
     conn = tenant_conn
 
@@ -948,7 +1197,9 @@ def ThemeData(productCode,processCode,themeName,tenant_conn):
 
 def ThemeDataV2(productCode,processCode,themeName, tenant_conn):
 
-    query = QUERIES['fetch_theme_data']
+    query = QUERIES['fetch_theme_data'].format(
+        tenant_filter=tenant_filter(conn_tenant(tenant_conn)) if SHARED_SCHEMA else ""
+    )
 
     conn = tenant_conn
 
@@ -1073,7 +1324,7 @@ def ProcessDefn(productCode,processCode,tenant_conn,commondb_conn,themeName=None
 
     "Retrieves Process Definition From Database"
 
-    raw_query = QUERIES.get('fetch_process_defn', "SELECT * FROM public.\"process\" WHERE process_cd <> 'process_cd' AND process_cd = '%s'")
+    raw_query = QUERIES.get('fetch_process_defn', "SELECT * FROM \"process\" WHERE process_cd <> 'process_cd' AND process_cd = '%s'")
     if "'%s'" in raw_query or '"%s"' in raw_query:
         query = raw_query % processCode
     elif "%s" in raw_query:
@@ -1859,6 +2110,10 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
         inputdata = inputdata.reset_index(drop=True)
         existing_cols_lower = {str(c).strip().lower() for c in inputdata.columns}
         skip_extra_cols = {'unmapped_fields', 'error msg'}
+        # Stable names for date-stamped headers (e.g. "Total 31.03.2023" -> total_current)
+        period_renames = _canonical_period_column_names(
+            [_to_sql_col_name(c) for c in orig_inputdata.columns] + list(existing_cols_lower)
+        )
 
         for orig_col in orig_inputdata.columns:
             orig_name = str(orig_col).strip()
@@ -1872,6 +2127,7 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
                 continue
 
             sql_col = _to_sql_col_name(orig_name)
+            sql_col = period_renames.get(sql_col, sql_col)
             if not sql_col or sql_col in skip_extra_cols:
                 continue
 
@@ -3070,7 +3326,7 @@ def handle_existing_process_metadata(tenantID, bucket, DataKey, response1, proje
 
     prompt_data = ReadS3(key=promptKey,bucket=bucket)
     
-    query = QUERIES['fetch_distinct_themenames'].format(process_code=ProcessCode)
+    query = QUERIES['fetch_distinct_themenames'].format(process_code=ProcessCode, tenant_filter=tenant_filter(tenantID))
     existing_themenames = fetch_data_from_db(tenant_conn,query)
     existing_theme_list = existing_themenames['themename'].tolist() if ('themename' in existing_themenames.columns) else []
     
@@ -3284,13 +3540,13 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
                     try:
                         with tenant_conn.cursor() as cur_map:
                             cur_map.execute(
-                                f"SELECT sno, {actual_col} FROM {table_name} WHERE processcode = %s AND themename = %s AND output = %s",
+                                f"SELECT sno, {actual_col} FROM {table_name} WHERE {tenant_filter(TenantID)}processcode = %s AND themename = %s AND output = %s",
                                 (ProcessCode, ThemeName, DataKey)
                             )
                             rows_map = cur_map.fetchall()
                             if not rows_map:
                                 cur_map.execute(
-                                    f"SELECT sno, {actual_col} FROM {table_name} WHERE processcode = %s AND themename = %s",
+                                    f"SELECT sno, {actual_col} FROM {table_name} WHERE {tenant_filter(TenantID)}processcode = %s AND themename = %s",
                                     (ProcessCode, ThemeName)
                                 )
                                 rows_map = cur_map.fetchall()
@@ -3367,9 +3623,10 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
             # Update historical rows if any are empty or have per-sheet bracketed Notes labels
             try:
+                _tf = tenant_filter(TenantID)
                 tenant_cursor.execute(
-                    f"{QUERIES['update_fs_historical_pnl']}; {QUERIES['update_fs_historical_notes']}; "
-                    "UPDATE active_fs SET statementtype = 'Notes to Accounts' WHERE statementtype LIKE 'Notes to Accounts (%';"
+                    f"{QUERIES['update_fs_historical_pnl'].format(tenant_filter=_tf)}; {QUERIES['update_fs_historical_notes'].format(tenant_filter=_tf)}; "
+                    f"UPDATE active_fs SET statementtype = 'Notes to Accounts' WHERE {_tf}statementtype LIKE 'Notes to Accounts (%';"
                 )
                 tenant_conn.commit()
             except Exception as e:
@@ -3408,7 +3665,7 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
             # Update historical rows if any are empty
             try:
-                tenant_cursor.execute(QUERIES.get('update_taxsys_historical_gstr1', "UPDATE active_taxsys SET statementtype = 'GSTR1' WHERE (statementtype IS NULL OR statementtype = '') AND (input LIKE '%GSTR1%' OR input LIKE '%gstr1%' OR themename LIKE '%GSTR%')"))
+                tenant_cursor.execute(QUERIES.get('update_taxsys_historical_gstr1', "UPDATE active_taxsys SET statementtype = 'GSTR1' WHERE {tenant_filter}(statementtype IS NULL OR statementtype = '') AND (input LIKE '%GSTR1%' OR input LIKE '%gstr1%' OR themename LIKE '%GSTR%')").format(tenant_filter=tenant_filter(TenantID)))
                 tenant_conn.commit()
             except Exception as e:
                 tenant_conn.rollback()
@@ -3464,6 +3721,12 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
                 derived = str(v).strip()
         filled_tc.append(derived or default_tc or str(ProcessCode).strip().upper())
     res['tablecode'] = filled_tc
+
+    # Spec-defined columns for this process ([table_new_columns] in config.ini); an empty
+    # column is enough for execute_data_operation_on_postgres to create it in the table.
+    for spec_col in TABLE_NEW_COLUMNS.get(str(ProcessCode).strip().upper(), []):
+        if spec_col not in {str(c).lower() for c in res.columns}:
+            res[spec_col] = None
 
     # Register auto-promoted extra columns in theme_mapping so reverse Excel export maps back to original source headers
     extra_col_map = dict(getattr(res, 'attrs', {}).get('extra_col_map', {}))
@@ -3605,8 +3868,8 @@ def export_user_data_to_excel(tenant_conn, tenant_id, process_code, transaction_
     with tenant_conn.cursor() as cur:
         query_mapping = QUERIES.get(
             'target_to_source',
-            "SELECT themename, targetfieldname, sourcefieldname FROM theme_mapping WHERE UPPER(processcode) = UPPER('{process_code}') AND sourcefieldname IS NOT NULL"
-        ).format(process_code=str(process_code).strip().upper())
+            "SELECT themename, targetfieldname, sourcefieldname FROM theme_mapping WHERE {tenant_filter}UPPER(processcode) = UPPER('{process_code}') AND sourcefieldname IS NOT NULL"
+        ).format(process_code=str(process_code).strip().upper(), tenant_filter=tenant_filter(tenant_id))
         cur.execute(query_mapping)
         mapping_rows = cur.fetchall()
 
@@ -3636,7 +3899,7 @@ def export_user_data_to_excel(tenant_conn, tenant_id, process_code, transaction_
         "SELECT * FROM {table_name} WHERE tenant_id = '{tenant_id}' AND (transactionid LIKE '{transaction_id}%%' OR input = '{data_key}')"
     ).format(
         table_name=target_table,
-        tenant_id=tenant_id,
+        tenant_id=sql_tenant_literal(tenant_id),
         transaction_id=safe_tx,
         data_key=safe_key
     )
@@ -3645,7 +3908,7 @@ def export_user_data_to_excel(tenant_conn, tenant_id, process_code, transaction_
         query_all = QUERIES.get(
             'user_data_all',
             "SELECT * FROM {table_name} WHERE tenant_id = '{tenant_id}'"
-        ).format(table_name=target_table, tenant_id=tenant_id)
+        ).format(table_name=target_table, tenant_id=sql_tenant_literal(tenant_id))
         user_df = pd.read_sql(query_all, tenant_conn)
 
     if user_df.empty:
@@ -3794,7 +4057,7 @@ def Job_Handler(
     
     # Resolve parameters with global / config fallbacks
     effective_source_type = str(source_type or config.get('defaults', 'source_type', fallback='file')).strip().lower()
-    effective_tenant_id = tenant_id or TenantID
+    effective_tenant_id = normalize_tenant_id(tenant_id or TenantID)
     effective_org_id = org_id or OrgID
     effective_product_name = product_name or ProductName
     effective_user_id = user_id or UserID
@@ -3813,6 +4076,9 @@ def Job_Handler(
     
     tenant_cursor = tenant_conn.cursor()
     commondb_cursor = commondb_conn.cursor()
+
+    # All tenants share one schema: make sure every tenant table is partitioned by tenant_id.
+    ensure_tenant_partitioning_all(tenant_conn)
     
     # -------------------------------------------------------------
     # 0. Source Data Acquisition (File or Database Table)
@@ -3823,6 +4089,7 @@ def Job_Handler(
         if not effective_source_table:
             raise ValueError("source_table is required when source_type='table'")
         
+        set_stage("READING_FILE", detail=f"{effective_source_db}.{effective_source_table}")
         clog(f"📥 Fetching data from database table '{effective_source_db}.{effective_source_table}'...", "INFO")
         table_df = read_table_data(effective_source_db, effective_source_table)
         clog(f"✅ Successfully fetched {len(table_df)} rows and {len(table_df.columns)} columns from '{effective_source_db}.{effective_source_table}'", "SUCCESS")
@@ -3837,6 +4104,7 @@ def Job_Handler(
         effective_source_table = None
         if isinstance(effective_data_key, str):
             effective_data_key = effective_data_key.strip()
+        set_stage("READING_FILE", detail=os.path.basename(str(effective_data_key)))
         sheets_dict = ReadAllSheetsS3(key=effective_data_key, bucket=bucket)
         total_sheets = len(sheets_dict)
         clog(f"File mode: Total sheet(s) detected in '{effective_data_key}': {total_sheets} -> {list(sheets_dict.keys())}", "INFO")
@@ -3853,6 +4121,7 @@ def Job_Handler(
             update_transaction_log(tenant_conn, effective_org_id, effective_transaction_id, attributes={"Status": f"In Progress ({sheet_name})"})
             
             # 2. Identifying Transaction type using AI for this sheet/table
+            set_stage("AI_CLASSIFICATION", sheet_index=sheet_idx, total_sheets=total_sheets, detail=sheet_name)
             response1 = transaction_identifier(bucket, effective_data_key, project_id, location, model_name, commondb_conn, input_data=sheet_df)
             clog(f"Sheet/Table '{sheet_name}' AI Response: {response1}", "INFO")
             
@@ -3891,7 +4160,7 @@ def Job_Handler(
             # Check if this exact input was previously ingested to reuse its exact TransactionType for composite PK idempotency
             try:
                 cur_existing_tx = tenant_conn.cursor()
-                cur_existing_tx.execute(f"SELECT transactiontype FROM active_{sheet_proc_code.lower()} WHERE output = %s LIMIT 1", (effective_data_key,))
+                cur_existing_tx.execute(f"SELECT transactiontype FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}output = %s LIMIT 1", (effective_data_key,))
                 row_existing_tx = cur_existing_tx.fetchone()
                 if row_existing_tx and row_existing_tx[0]:
                     current_tx_type = row_existing_tx[0]
@@ -3906,6 +4175,7 @@ def Job_Handler(
             update_transaction_log(tenant_conn, effective_org_id, effective_transaction_id, attributes={"ProcessCode": sheet_proc_code, "TransactionType": current_tx_type})
             
             # 3. Handling New or Existing Process
+            set_stage("PROCESS_METADATA", sheet_index=sheet_idx, total_sheets=total_sheets, detail=f"{sheet_name} -> {sheet_proc_code}")
             sheet_proc_code_norm = str(sheet_proc_code).strip().upper()
             query_check = QUERIES.get('check_process_exists', "SELECT 1 FROM process WHERE UPPER(process_cd) = '{process_cd}' LIMIT 1").format(process_cd=sheet_proc_code_norm)
             process_exists = not fetch_data_from_db(commondb_conn, query_check).empty
@@ -3925,6 +4195,7 @@ def Job_Handler(
             else:
                 clog(f"Existing Process '{sheet_proc_code}' for '{sheet_name}'", "INFO")
                 proc_code = sheet_proc_code
+                set_stage("THEME_MAPPING", sheet_index=sheet_idx, total_sheets=total_sheets, detail=sheet_name)
 
                 # Check if this input/sheet was already mapped to a theme previously in active table
                 existing_theme_for_sheet = None
@@ -3933,13 +4204,13 @@ def Job_Handler(
                         cur_th.execute(QUERIES['check_table_exists'], (f"active_{sheet_proc_code.lower()}",))
                         if cur_th.fetchone():
                             cur_th.execute(
-                                f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE input = %s AND (transactionid = %s OR statementtype = %s) LIMIT 1",
+                                f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND (transactionid = %s OR statementtype = %s) LIMIT 1",
                                 (effective_data_key, current_txn_id, sheet_name)
                             )
                             t_row = cur_th.fetchone()
                             if not t_row and total_sheets == 1:
                                 cur_th.execute(
-                                    f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE input = %s LIMIT 1",
+                                    f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s LIMIT 1",
                                     (effective_data_key,)
                                 )
                                 t_row = cur_th.fetchone()
@@ -3947,7 +4218,7 @@ def Job_Handler(
                                 candidate_theme = str(t_row[0]).strip()
                                 # Verify candidate theme columns match current columns
                                 cur_th.execute(
-                                    "SELECT sourcefieldname FROM theme_mapping WHERE productcode = %s AND processcode = %s AND themename = %s",
+                                    f"SELECT sourcefieldname FROM theme_mapping WHERE {tenant_filter(effective_tenant_id)}productcode = %s AND processcode = %s AND themename = %s",
                                     (effective_product_name, sheet_proc_code, candidate_theme)
                                 )
                                 th_cols = {str(r[0]).strip().lower() for r in cur_th.fetchall() if r[0]}
@@ -3979,6 +4250,7 @@ def Job_Handler(
             target_proc = proc_code
             
             # 4. Updating the response in the database for this sheet/table
+            set_stage("UPSERT", sheet_index=sheet_idx, total_sheets=total_sheets, detail=f"{sheet_name} -> active_{str(proc_code).lower()}")
             sheet_resp = updating_response_in_db(
                 effective_product_name, effective_tenant_id, effective_org_id, effective_data_key, current_tx_type, 
                 current_txn_id, proc_code, theme_nm, commondb_conn, tenant_conn, tenant_cursor, 
@@ -3996,6 +4268,7 @@ def Job_Handler(
         exported_files = {}
         try:
             target_proc = target_proc if 'target_proc' in locals() and target_proc else (sheet_proc_code if 'sheet_proc_code' in locals() and sheet_proc_code else "FS")
+            set_stage("EXPORT", detail=f"active_{str(target_proc).lower()}")
             clog(f"🔄 Executing final Excel export: mapping target columns to source fieldnames for '{target_proc}'...", "INFO")
             exported_files = export_user_data_to_excel(
                 tenant_conn=tenant_conn, 
@@ -4039,7 +4312,8 @@ def Job_Handler(
         TransactionType = OldChanges["TransactionType"]
         
         query = QUERIES['fetch_superadmin_old_records'].format(
-            process_code=ProcessCode, themename=ThemeName, transactiontype=TransactionType, transactionid=TransactionID
+            process_code=ProcessCode, themename=ThemeName, transactiontype=TransactionType, transactionid=TransactionID,
+            tenant_filter=tenant_filter(TenantID)
         )
     
         updated_data = fetch_data_from_db(tenant_conn,query)
