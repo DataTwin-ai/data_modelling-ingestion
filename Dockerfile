@@ -16,6 +16,7 @@ RUN pip install -r requirements.txt
 # /app/config.ini at runtime (see deploy/deploy.sh).
 COPY app.py api.py job_manager.py ./
 COPY dashboard/ ./dashboard/
+COPY mappings/ ./mappings/
 
 # Non-root user. /app must be writable because app.py writes log_<ts>.txt
 # next to itself; /app/exports, /app/uploads (dashboard uploads) and /app/logs
