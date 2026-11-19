@@ -9,3 +9,7 @@ google-auth>=2.29,<3
 fastapi>=0.110,<1
 uvicorn[standard]>=0.29,<1
 pydantic>=2.6,<3
+# Dashboard upload endpoint (FastAPI File/Form) needs multipart parsing
+python-multipart>=0.0.9,<1
+# Legacy .xls workbooks (pandas read_excel engine='xlrd')
+xlrd>=2.0.1,<3
