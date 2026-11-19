@@ -150,6 +150,88 @@ TABLE_NEW_COLUMNS = {
     for k, v in (config.items('table_new_columns') if config.has_section('table_new_columns') else [])
 }
 
+# GSTR-9 internal link refs: internal_link_ref -> section / nature_of_supplies, shipped with the code
+# (generated from GSTR9_internal_linkref_updated-v3.xlsx) and matched on tablecode + tablecodesub.
+GSTR9_LINKREF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mappings", "gstr9_internal_link_refs.json")
+_GSTR9_ITC_TYPES = {"ip": "Inputs", "cg": "Capital Goods", "is": "Input Services"}
+_GSTR9_CODE_RE = re.compile(r"^\d{1,2}[A-Z]?\d?$")
+
+
+def _load_gstr9_link_refs():
+    try:
+        with open(GSTR9_LINKREF_FILE, encoding="utf-8") as fh:
+            return json.load(fh).get("links", {})
+    except Exception as e:
+        clog(f"Notice: GSTR-9 link-ref mapping not loaded ({e})", "WARNING")
+        return {}
+
+
+def _gstr9_link_key(link, nature):
+    """GSTR9_table6B_supp_non_rchrg_itc_typ_cg -> ('6B', 'Capital Goods'); table 9 keys on the tax name."""
+    m = re.match(r"GSTR9_table(\d+)([A-Z]\d?)?_", link + "_")
+    if not m:
+        return None
+    num, letter = m.group(1), m.group(2) or ""
+    t = re.search(r"_itc_typ_(ip|cg|is)$", link)
+    if t:
+        return (num + letter, _GSTR9_ITC_TYPES[t.group(1)])
+    if num == "9":
+        return ("9", nature)
+    if num in ("10", "11", "12", "13"):
+        return ("13", None) if link.endswith("total_turnover") else None   # only the 10-13 total is a row
+    if num == "14":
+        return None                                                         # Table 14 rows matched in order
+    return (num + letter, "*")
+
+
+def fill_gstr9_link_refs(res):
+    """Fill internal_link_ref, section and nature_of_supplies on GSTR-9 rows from the shipped mapping.
+    Rows are matched on tablecode (+ tablecodesub for ITC types and Table 9); Table 14 rows in order.
+    Each link is used at most once; rows without a unique match are left as they are."""
+    master = _load_gstr9_link_refs()
+    if not master or res is None or res.empty:
+        return res
+    cols = {str(c).lower(): c for c in res.columns}
+    tc_col, sub_col = cols.get("tablecode"), cols.get("tablecodesub")
+    if not tc_col:
+        return res
+    by_key = {}
+    for link, info in master.items():
+        key = _gstr9_link_key(link, info.get("nature_of_supplies", ""))
+        if key:
+            by_key.setdefault(key, []).append(link)
+    fourteen = sorted(l for l in master if l.startswith("GSTR9_table14"))
+    for c in ("internal_link_ref", "section", "nature_of_supplies"):
+        if c not in cols:
+            res[c] = None
+            cols[c] = c
+    used, n14, filled = set(), 0, 0
+    for idx in res.index:
+        tc = str(res.at[idx, tc_col] or "").strip()
+        if not _GSTR9_CODE_RE.match(tc):
+            continue
+        sub = res.at[idx, sub_col] if sub_col else None
+        sub = None if sub is None or (isinstance(sub, float) and pd.isna(sub)) or not str(sub).strip() else str(sub).strip()
+        if tc == "14":
+            link = fourteen[n14] if n14 < len(fourteen) else None
+            n14 += 1
+        else:
+            cand = by_key.get((tc, sub)) or by_key.get((tc, "*")) or by_key.get((tc, None)) or []
+            link = cand[0] if len(cand) == 1 else None
+        if not link or link in used:
+            continue
+        used.add(link)
+        info = master[link]
+        res.at[idx, cols["internal_link_ref"]] = link
+        if info.get("section"):
+            res.at[idx, cols["section"]] = info["section"]
+        if info.get("nature_of_supplies"):
+            res.at[idx, cols["nature_of_supplies"]] = info["nature_of_supplies"]
+        filled += 1
+    clog(f"GSTR-9 link refs: filled {filled}/{len(res)} row(s) from {os.path.basename(GSTR9_LINKREF_FILE)}",
+         "SUCCESS" if filled else "WARNING")
+    return res
+
 # Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
 # On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
 KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
@@ -4003,6 +4085,13 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
     for spec_col in TABLE_NEW_COLUMNS.get(str(ProcessCode).strip().upper(), []):
         if spec_col not in {str(c).lower() for c in res.columns}:
             res[spec_col] = None
+
+    # GSTR-9 returns: internal_link_ref / section / nature_of_supplies from the shipped mapping,
+    # so a fresh upload (e.g. after a truncate) comes in complete.
+    _st_col = next((c for c in res.columns if str(c).lower() == 'statementtype'), None)
+    if str(ProcessCode).strip().upper() in ('TAXSYS', 'GSTR') and _st_col is not None \
+            and res[_st_col].astype(str).str.upper().eq('GSTR9').any():
+        res = fill_gstr9_link_refs(res)
 
     # Register auto-promoted extra columns in theme_mapping so reverse Excel export maps back to original source headers
     extra_col_map = dict(getattr(res, 'attrs', {}).get('extra_col_map', {}))

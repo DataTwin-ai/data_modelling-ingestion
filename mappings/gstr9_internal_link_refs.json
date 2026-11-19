@@ -1,0 +1,410 @@
+{
+ "_note": "internal_link_ref -> section / nature_of_supplies for GSTR-9 rows; matched to rows by tablecode + tablecodesub in app.fill_gstr9_link_refs",
+ "_source": "GSTR9_internal_linkref_updated-v3.xlsx (sheet 'GSTR 9')",
+ "links": {
+  "GSTR9_table10_13_total_turnover": {
+   "nature_of_supplies": "Total turnover (5N + 10 - 11)",
+   "section": "10, 11, 12 & 13  Particulars of the transactions for the financial year declared in returns of the next financial year till the specified period"
+  },
+  "GSTR9_table10_amd_pos": {
+   "nature_of_supplies": "Supplies / tax declared through Amendments (+) (net of debit notes)",
+   "section": "10, 11, 12 & 13  Particulars of the transactions for the financial year declared in returns of the next financial year till the specified period"
+  },
+  "GSTR9_table11_amd_neg": {
+   "nature_of_supplies": "Supplies / tax reduced through Amendments (-) (net of credit notes)",
+   "section": "10, 11, 12 & 13  Particulars of the transactions for the financial year declared in returns of the next financial year till the specified period"
+  },
+  "GSTR9_table12_itc_rvsl": {
+   "nature_of_supplies": "Reversal of ITC availed during previous financial year",
+   "section": "10, 11, 12 & 13  Particulars of the transactions for the financial year declared in returns of the next financial year till the specified period"
+  },
+  "GSTR9_table13_itc_aval": {
+   "nature_of_supplies": "ITC availed for the previous financial year",
+   "section": "10, 11, 12 & 13  Particulars of the transactions for the financial year declared in returns of the next financial year till the specified period"
+  },
+  "GSTR9_table14A_igst": {
+   "nature_of_supplies": "Integrated Tax",
+   "section": "14  Differential tax paid on account of declaration in 10 & 11 above"
+  },
+  "GSTR9_table14B_cgst": {
+   "nature_of_supplies": "Central Tax",
+   "section": "14  Differential tax paid on account of declaration in 10 & 11 above"
+  },
+  "GSTR9_table14C_sgst": {
+   "nature_of_supplies": "State/UT Tax",
+   "section": "14  Differential tax paid on account of declaration in 10 & 11 above"
+  },
+  "GSTR9_table14D_cess": {
+   "nature_of_supplies": "Cess",
+   "section": "14  Differential tax paid on account of declaration in 10 & 11 above"
+  },
+  "GSTR9_table14E_intr": {
+   "nature_of_supplies": "Interest",
+   "section": "14  Differential tax paid on account of declaration in 10 & 11 above"
+  },
+  "GSTR9_table15A_rfd_clmd": {
+   "nature_of_supplies": "Total Refund claimed",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table15B_rfd_sanc": {
+   "nature_of_supplies": "Total Refund sanctioned",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table15C_rfd_rejd": {
+   "nature_of_supplies": "Total Refund Rejected",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table15D_rfd_pend": {
+   "nature_of_supplies": "Total Refund Pending",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table15E_dmnd_tot": {
+   "nature_of_supplies": "Total demand of taxes",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table15F_dmnd_paid": {
+   "nature_of_supplies": "Total taxes paid in respect of E above",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table15G_dmnd_pend": {
+   "nature_of_supplies": "Total demands pending out of E above",
+   "section": "15  Particulars of Demands and Refunds"
+  },
+  "GSTR9_table16A_comp_supp": {
+   "nature_of_supplies": "Supplies received from Composition taxpayers",
+   "section": "16  Information on supplies received from composition taxpayers, deemed supply under section 143 and goods sent on approval basis"
+  },
+  "GSTR9_table16B_deemed_supp": {
+   "nature_of_supplies": "Deemed supply under section 143",
+   "section": "16  Information on supplies received from composition taxpayers, deemed supply under section 143 and goods sent on approval basis"
+  },
+  "GSTR9_table16C_not_ret_goods": {
+   "nature_of_supplies": "Goods sent on approval basis but not returned",
+   "section": "16  Information on supplies received from composition taxpayers, deemed supply under section 143 and goods sent on approval basis"
+  },
+  "GSTR9_table19A_late_fee_cgst": {
+   "nature_of_supplies": "Central tax",
+   "section": "19  Late fee payable and paid"
+  },
+  "GSTR9_table19B_late_fee_sgst": {
+   "nature_of_supplies": "State Tax",
+   "section": "19  Late fee payable and paid"
+  },
+  "GSTR9_table4A_b2c": {
+   "nature_of_supplies": "Supplies made to un-registered persons (B2C)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4B_b2b": {
+   "nature_of_supplies": "Supplies made to registered persons (B2B)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4C_exp": {
+   "nature_of_supplies": "Zero rated supply (Export) on payment of tax (Except supplies to SEZs)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4D_sez": {
+   "nature_of_supplies": "Supplies to SEZs on payment of tax",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4E_deemed": {
+   "nature_of_supplies": "Deemed Exports",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4F_at": {
+   "nature_of_supplies": "Advances on which tax has been paid but invoice has not been issued (not covered under (A) to (E) above)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4G_rchrg": {
+   "nature_of_supplies": "Inward supplies on which tax is to be paid on the reverse charge basis",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4H_sub_totalAG": {
+   "nature_of_supplies": "Sub-total (A to G above)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4I_cr_nt": {
+   "nature_of_supplies": "Credit notes issued in respect of transactions specified in (B) to (E) above (-)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4J_dr_nt": {
+   "nature_of_supplies": "Debit notes issued in respect of transactions specified in (B) to (E) above (+)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4K_amd_pos": {
+   "nature_of_supplies": "Supplies / tax declared through Amendments (+)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4L_amd_neg": {
+   "nature_of_supplies": "Supplies / tax reduced through Amendments (-)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4M_sub_totalIL": {
+   "nature_of_supplies": "Sub total (I to L above)",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table4N_total_taxable": {
+   "nature_of_supplies": "Supplies and advances on which tax is to be paid (H + M) above",
+   "section": "4  Details of advances, inward and outward supplies made during the financial year on which tax is payable"
+  },
+  "GSTR9_table5A_exp": {
+   "nature_of_supplies": "Zero rated supply (Export) without payment of tax",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5B_sez": {
+   "nature_of_supplies": "Supply to SEZs without payment of tax",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5C_rchrg": {
+   "nature_of_supplies": "Supplies on which tax is to be paid by the recipient on reverse charge",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5D_exmt": {
+   "nature_of_supplies": "Exempted",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5E_nil": {
+   "nature_of_supplies": "Nil Rated",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5F_non_gst": {
+   "nature_of_supplies": "Non-GST supply (includes 'no supply')",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5G_sub_totalAF": {
+   "nature_of_supplies": "Sub total (A to F above)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5H_cr_nt": {
+   "nature_of_supplies": "Credit Notes issued in respect of transactions specified in A to F above (-)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5I_dr_nt": {
+   "nature_of_supplies": "Debit Notes issued in respect of transactions specified in A to F above (+)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5J_amd_pos": {
+   "nature_of_supplies": "Supplies declared through Amendments (+)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5K_amd_neg": {
+   "nature_of_supplies": "Supplies reduced through Amendments (-)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5L_sub_totalHK": {
+   "nature_of_supplies": "Sub-Total (H to K above)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5M_total_nontax": {
+   "nature_of_supplies": "Turnover on which tax is not to be paid (G + L above)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table5N_total_turnover": {
+   "nature_of_supplies": "Total Turnover (including advances) (4N + 5M - 4G above)",
+   "section": "5  Details of Outward supplies made during the financial year on which tax is not payable"
+  },
+  "GSTR9_table6A_itc_3b": {
+   "nature_of_supplies": "Total amount of input tax credit availed through FORM GSTR-3B (sum total of Table 4A of FORM GSTR-3B)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6B_supp_non_rchrg_itc_typ_cg": {
+   "nature_of_supplies": "Capital Goods",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6B_supp_non_rchrg_itc_typ_ip": {
+   "nature_of_supplies": "Inward supplies (other than imports and inward supplies liable to reverse charge but includes services received from SEZs)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6B_supp_non_rchrg_itc_typ_is": {
+   "nature_of_supplies": "Input Services",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6C_rchrg_unreg_itc_typ_cg": {
+   "nature_of_supplies": "Capital Goods",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6C_rchrg_unreg_itc_typ_ip": {
+   "nature_of_supplies": "Inward supplies received from unregistered persons liable to reverse charge (other than B above) on which tax is paid & ITC availed",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6C_rchrg_unreg_itc_typ_is": {
+   "nature_of_supplies": "Input Services",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6D_rchrg_reg_itc_typ_cg": {
+   "nature_of_supplies": "Capital Goods",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6D_rchrg_reg_itc_typ_ip": {
+   "nature_of_supplies": "Inward supplies received from registered persons liable to reverse charge (other than B above) on which tax is paid and ITC availed",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6D_rchrg_reg_itc_typ_is": {
+   "nature_of_supplies": "Input Services",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6E_impg_itc_typ_cg": {
+   "nature_of_supplies": "Capital Goods",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6E_impg_itc_typ_ip": {
+   "nature_of_supplies": "Import of goods (including supplies from SEZs)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6F_imps": {
+   "nature_of_supplies": "Import of services (excluding inward supplies from SEZs)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6G_isd": {
+   "nature_of_supplies": "Input Tax credit received from ISD",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6H_itc_reclaim": {
+   "nature_of_supplies": "Amount of ITC reclaimed (other than B above) under the provisions of the Act",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6I_sub_totalBH": {
+   "nature_of_supplies": "Sub-total (B to H above)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6J_difference": {
+   "nature_of_supplies": "Difference (I - A above)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6K_tran1": {
+   "nature_of_supplies": "Transition Credit through TRAN-1 (including revisions if any)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6L_tran2": {
+   "nature_of_supplies": "Transition Credit through TRAN-2",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6M_other": {
+   "nature_of_supplies": "Any other ITC availed but not specified above",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6N_sub_totalKM": {
+   "nature_of_supplies": "Sub-total (K to M above)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table6O_total_itc_availed": {
+   "nature_of_supplies": "Total ITC availed (I + N above)",
+   "section": "6  Details of ITC availed during the financial year"
+  },
+  "GSTR9_table7A_rule37": {
+   "nature_of_supplies": "As per Rule 37",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7B_rule39": {
+   "nature_of_supplies": "As per Rule 39",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7C_rule42": {
+   "nature_of_supplies": "As per Rule 42",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7D_rule43": {
+   "nature_of_supplies": "As per Rule 43",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7E_sec17": {
+   "nature_of_supplies": "As per section 17(5)",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7F_revsl_tran1": {
+   "nature_of_supplies": "Reversal of TRAN-1 credit",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7G_revsl_tran2": {
+   "nature_of_supplies": "Reversal of TRAN-2 credit",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7H1_other": {
+   "nature_of_supplies": "Others",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7I_tot_itc_revd": {
+   "nature_of_supplies": "Total ITC Reversed (Sum of A to H above)",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table7J_net_itc_aval": {
+   "nature_of_supplies": "Net ITC Available for Utilization (6O - 7I)",
+   "section": "7  Details of ITC Reversed and Ineligible ITC for the financial year"
+  },
+  "GSTR9_table8A_itc_2a": {
+   "nature_of_supplies": "ITC as per GSTR-2A (Table 3 & 5 thereof)",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8B_itc_tot": {
+   "nature_of_supplies": "ITC as per sum total of 6(B) and 6(H) above",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8C_itc_inwd_supp": {
+   "nature_of_supplies": "ITC on inward supplies (other than imports and inward supplies liable to reverse charge but includes services received from SEZs) received during the financial year but availed in the next financial year upto specified period",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8D_difference": {
+   "nature_of_supplies": "Difference [A-(B+C)]",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8E_itc_not_aval": {
+   "nature_of_supplies": "ITC available but not availed",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8F_itc_inelg": {
+   "nature_of_supplies": "ITC available but ineligible",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8G_igst_paid_import": {
+   "nature_of_supplies": "IGST paid on import of goods (including supplies from SEZ)",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8H_igst_aval_import": {
+   "nature_of_supplies": "IGST credit availed on import of goods (as per 6(E) above)",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8I_diff_igst": {
+   "nature_of_supplies": "Difference (G-H)",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8J_igst_not_aval": {
+   "nature_of_supplies": "ITC available but not availed on import of goods (Equal to I)",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table8K_tot_itc_lapsed": {
+   "nature_of_supplies": "Total ITC to be lapsed in current financial year (E + F + J)",
+   "section": "8  Other ITC related information"
+  },
+  "GSTR9_table9A_igst": {
+   "nature_of_supplies": "Integrated Tax",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9B_cgst": {
+   "nature_of_supplies": "Central Tax",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9C_sgst": {
+   "nature_of_supplies": "State/UT Tax",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9D_cess": {
+   "nature_of_supplies": "Cess",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9E_intr": {
+   "nature_of_supplies": "Interest",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9F_fee": {
+   "nature_of_supplies": "Late Fees",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9G_pen": {
+   "nature_of_supplies": "Penalty",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  },
+  "GSTR9_table9H_other": {
+   "nature_of_supplies": "Other",
+   "section": "9  Details of tax paid as declared in returns filed during the financial year"
+  }
+ }
+}
