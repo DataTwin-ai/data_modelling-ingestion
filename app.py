@@ -150,6 +150,12 @@ TABLE_NEW_COLUMNS = {
     for k, v in (config.items('table_new_columns') if config.has_section('table_new_columns') else [])
 }
 
+# Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
+# On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
+KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
+    c for cols in TABLE_NEW_COLUMNS.values() for c in cols
+}
+
 # -------------------------------------------------------------------------
 # Custom Logger (clog)
 # -------------------------------------------------------------------------
@@ -927,7 +933,18 @@ def execute_data_operation_on_postgres(tenantID, df, table_name, pk_keys, operat
             
             if pk_constraints and update_cols:
                 constraint_name = pk_constraints[0][0]
-                set_items = [f'"{col}" = EXCLUDED."{col}"' for col in update_cols if col != 'modifieddatetime']
+                set_items = []
+                for col in update_cols:
+                    if col == 'modifieddatetime':
+                        continue
+                    if col in KEEP_EXISTING_WHEN_EMPTY:
+                        # A re-upload without a value must not wipe a curated value already stored
+                        set_items.append(
+                            f'"{col}" = CASE WHEN EXCLUDED."{col}" IS NULL OR EXCLUDED."{col}"::text = \'\' '
+                            f'THEN {table_name}."{col}" ELSE EXCLUDED."{col}" END'
+                        )
+                    else:
+                        set_items.append(f'"{col}" = EXCLUDED."{col}"')
                 if 'modifieddatetime' in db_cols:
                     set_items.append("modifieddatetime = NOW()")
                 set_clause = ", ".join(set_items)
@@ -2811,17 +2828,41 @@ def extract_excel_metadata(excel_source, key=""):
             wb = excel_source
 
         all_text = []
+        row_cells = []
         if wb:
             first_sheet = wb[wb.sheetnames[0]]
             for r in range(1, 15):
-                row_str = ' '.join([str(first_sheet.cell(r, c).value or '').strip() for c in range(1, 10)]).strip()
+                cells = [str(first_sheet.cell(r, c).value or '').strip() for c in range(1, 10)]
+                row_str = ' '.join(cells).strip()
                 if row_str:
                     all_text.append((r, row_str))
+                    row_cells.append([v for v in cells if v])
 
-        if all_text:
+        def _labelled_value(label_re):
+            """Value next to a label in a short header row, e.g.
+            ['3(a).', 'Legal name of the registered person', 'ACME LTD'] or ['Legal name : ACME LTD']."""
+            for cells in row_cells:
+                if len(cells) > 4:          # table header rows are wide; label/value rows are short
+                    continue
+                for k, cell in enumerate(cells):
+                    if re.search(label_re, cell, re.I):
+                        after_colon = cell.split(':', 1)[1].strip() if ':' in cell else ''
+                        if after_colon:
+                            return after_colon
+                        if k + 1 < len(cells):
+                            return cells[k + 1]
+            return ''
+
+        labelled_legal = _labelled_value(r'\blegal\s+name\b')
+        if labelled_legal:
+            meta['legal_name'] = labelled_legal
+            meta['company_name'] = labelled_legal
+        elif all_text:
             first_row_txt = all_text[0][1]
-            meta['legal_name'] = first_row_txt
-            meta['company_name'] = first_row_txt
+            # A form title ("Form GSTR-9", "FORM GSTR-3B") is not the registered person's name
+            if not re.match(r'^\s*(form\b|gstr)', first_row_txt, re.I):
+                meta['legal_name'] = first_row_txt
+                meta['company_name'] = first_row_txt
 
         combined_text = ' '.join([t[1] for t in all_text]) + ' ' + str(key)
 
