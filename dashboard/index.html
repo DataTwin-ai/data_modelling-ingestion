@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ingestion Console</title>
+<style>
+  :root {
+    --bg: #eef1f8;
+    --panel: #ffffff;
+    --panel-2: #f3f5fb;
+    --border: #dde2ee;
+    --text: #182033;
+    --muted: #63708a;
+    --accent: #4f46e5;
+    --accent-2: #0ea5a4;
+    --accent-soft: #ecebfd;
+    --ok: #0f9d6b;
+    --ok-soft: #dff6ec;
+    --warn: #c27803;
+    --warn-soft: #fdf1d8;
+    --err: #d93a4a;
+    --err-soft: #fde7ea;
+    --stage: #7c4dff;
+    --head-1: #1e1b4b;
+    --head-2: #3730a3;
+    --log-bg: #0f1324;
+    --log-text: #d8def0;
+    --log-muted: #7f89a8;
+    --shadow: 0 1px 2px rgba(24,32,51,.06), 0 4px 14px rgba(24,32,51,.06);
+    --radius: 12px;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1020;
+      --panel: #151a2e;
+      --panel-2: #1c2239;
+      --border: #2a3150;
+      --text: #e6e9f5;
+      --muted: #8e98b6;
+      --accent: #8b85ff;
+      --accent-2: #2dd4bf;
+      --accent-soft: #252a55;
+      --ok: #34d399;
+      --ok-soft: #12332a;
+      --warn: #fbbf24;
+      --warn-soft: #3a2e10;
+      --err: #fb7185;
+      --err-soft: #3d1a24;
+      --stage: #a78bfa;
+      --head-1: #0b0e1f;
+      --head-2: #27236b;
+      --log-bg: #080b17;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  .detail-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px; color: #fff;
+    background: linear-gradient(110deg, var(--head-1) 0%, var(--head-2) 70%, #0e7490 100%);
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .2px; }
+  header .sub { color: rgba(255,255,255,.72); font-size: 12px; }
+  .conn {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: #fff;
+    background: rgba(255,255,255,.12); padding: 4px 10px; border-radius: 99px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .dot.down { background: var(--err); }
+
+  main {
+    display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px;
+    padding: 16px 20px; height: calc(100vh - 57px);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; height: auto; }
+  }
+  .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; min-height: 0; box-shadow: var(--shadow);
+  }
+  .card h2 {
+    margin: 0 0 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--accent);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .card h2 .count { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
+
+  /* Upload form */
+  label.field { display: block; margin-bottom: 10px; }
+  label.field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text] {
+    width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font: inherit;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .drop {
+    border: 1.5px dashed var(--border); border-radius: 8px; padding: 18px 12px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; margin-bottom: 12px;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { color: var(--text); display: block; word-break: break-all; }
+  .drop small { display: block; margin-top: 4px; }
+  button.primary {
+    width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff; font: inherit; font-weight: 650; cursor: pointer; transition: filter .15s, transform .05s;
+  }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  button.primary:active:not(:disabled) { transform: translateY(1px); }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  .msg { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 7px; }
+  .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.err { background: var(--err-soft); color: var(--err); }
+  .bar { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .bar.ok > i { background: var(--ok); }
+  .bar.err > i { background: var(--err); }
+  #uploadBar { margin-top: 10px; }
+
+  /* Jobs list */
+  .jobs { flex: 1; display: flex; flex-direction: column; }
+  .jobs-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .job {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);
+    border-left: 4px solid var(--muted); background: var(--panel);
+  }
+  .job.running { border-left-color: var(--accent); }
+  .job.completed { border-left-color: var(--ok); }
+  .job.failed, .job.interrupted { border-left-color: var(--err); }
+  .job.queued { border-left-color: var(--warn); }
+  .job:hover { background: var(--panel-2); }
+  .job.sel { background: var(--accent-soft); border-color: var(--accent); }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; margin-top: 8px; border-top: 1px solid var(--border); }
+  .pager span { font-size: 12px; color: var(--muted); }
+  .pager button {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 7px;
+    padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .pager button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .pager button:disabled { opacity: .45; cursor: not-allowed; }
+  .job .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .job .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job .meta { color: var(--muted); font-size: 12px; margin: 2px 0 6px; display: flex; justify-content: space-between; gap: 8px; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
+
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; white-space: nowrap;
+    background: var(--panel-2); color: var(--muted);
+  }
+  .badge.running { background: var(--accent-soft); color: var(--accent); }
+  .badge.completed { background: var(--ok-soft); color: var(--ok); }
+  .badge.failed, .badge.interrupted { background: var(--err-soft); color: var(--err); }
+  .badge.queued { background: var(--warn-soft); color: var(--warn); }
+
+  /* Detail */
+  .detail { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .detail-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .detail-head h3 { margin: 0; font-size: 16px; word-break: break-all; }
+  .kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .kv b { color: var(--text); font-weight: 600; }
+
+  .stepper { display: flex; gap: 4px; margin: 16px 0 6px; overflow-x: auto; padding-bottom: 2px; }
+  .step {
+    flex: 1; min-width: 92px; text-align: center; font-size: 11px; color: var(--muted);
+    padding-top: 8px; border-top: 3px solid var(--border); white-space: nowrap;
+  }
+  .step { border-radius: 2px; }
+  .step.done { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+  .step.cur { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+  .step.cur.pulse { animation: pulse 1.4s ease-in-out infinite; }
+  .step.fail { border-color: var(--err); color: var(--err); font-weight: 650; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .stage-detail { font-size: 12px; color: var(--muted); margin-bottom: 12px; min-height: 18px; }
+  .stage-detail b { color: var(--text); }
+
+  .errbox { background: var(--err-soft); color: var(--err); padding: 8px 10px; border-radius: 7px; font-size: 13px; margin-bottom: 12px; word-break: break-word; }
+  .result { background: var(--ok-soft); color: var(--text); padding: 8px 10px; border-radius: 7px; font-size: 12px; margin-bottom: 12px; }
+  .result b { color: var(--ok); }
+
+  .log-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .seg button {
+    border: 0; background: transparent; color: var(--muted); padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .log-tools label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .log {
+    flex: 1; min-height: 280px; overflow: auto; background: var(--log-bg); color: var(--log-text);
+    border-radius: 8px; padding: 10px 0; font: 12px/1.55 var(--mono);
+  }
+  .ln { display: grid; grid-template-columns: 64px 72px 1fr; gap: 8px; padding: 0 12px; white-space: pre-wrap; word-break: break-word; }
+  .ln:hover { background: rgba(255,255,255,.04); }
+  .ln .t { color: var(--log-muted); }
+  .ln .l { font-weight: 600; }
+  .ln.INFO .l { color: #7fb0ff; }
+  .ln.SUCCESS .l { color: #5fd38d; }
+  .ln.WARNING .l { color: #f0b252; }
+  .ln.WARNING .m { color: #f3d29a; }
+  .ln.ERROR .l, .ln.ERROR .m { color: #ff7b72; }
+  .ln.DEBUG .l { color: var(--log-muted); }
+  .ln.STAGE { background: rgba(164,142,240,.12); }
+  .ln.STAGE .l, .ln.STAGE .m { color: #c3b4ff; font-weight: 600; }
+  .head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .close-btn {
+    border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 7px;
+    padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .close-btn:hover { color: var(--text, inherit); background: var(--accent-soft); }
+  /* Empty-state 3D pipeline animation */
+  .placeholder { flex-direction: column; gap: 14px; }
+  .viz { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .viz-title { font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--accent); }
+  .viz-scene { width: 100%; height: 300px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .viz-scale { perspective: 1200px; transform-origin: center center; }
+  .viz-plane {
+    --cube: 64px;
+    position: relative; width: 960px; height: 150px; transform-style: preserve-3d;
+    transform: rotateX(60deg) rotateZ(-14deg);
+    border-radius: 18px; border: 1px solid var(--border);
+    background:
+      linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 30px 30px,
+      linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / 30px 30px,
+      var(--panel-2);
+    box-shadow: 0 30px 60px rgba(40, 40, 120, .18);
+  }
+  .viz-track {
+    position: absolute; left: 70px; right: 50px; top: 73px; height: 4px; border-radius: 4px;
+    background: repeating-linear-gradient(90deg, var(--accent) 0 14px, transparent 14px 26px);
+    opacity: .55; animation: vizFlow 1s linear infinite;
+  }
+  @keyframes vizFlow { to { background-position: 26px 0; } }
+  .viz-cube {
+    position: absolute; top: 43px; width: var(--cube); height: var(--cube); transform-style: preserve-3d;
+    transition: transform .45s cubic-bezier(.3,1.6,.5,1);
+  }
+  .viz-cube .cf { position: absolute; inset: 0; border: 1px solid rgba(255,255,255,.35); transition: background .4s; }
+  .viz-cube .cf-top { transform: translateZ(var(--cube)); background: var(--panel); border-color: var(--border); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; font: 700 12px var(--mono); color: var(--muted); }
+  .viz-cube .cf-front { transform-origin: bottom; transform: rotateX(-90deg); background: #c7c9f3;
+    display: flex; align-items: center; justify-content: center; font: 700 13px var(--mono); color: #3730a3; }
+  .viz-cube .cf-back { transform-origin: top; transform: rotateX(90deg); background: #b9bbec; }
+  .viz-cube .cf-left { transform-origin: left; transform: rotateY(-90deg); background: #aeb1e8; }
+  .viz-cube .cf-right { transform-origin: right; transform: rotateY(90deg); background: #a3a6e2; }
+  .viz-cube.done .cf-top { background: var(--ok); color: #fff; border-color: var(--ok); }
+  .viz-cube.done .cf-front { background: #9fe3c7; color: #065f46; }
+  .viz-cube.done .cf-left, .viz-cube.done .cf-right, .viz-cube.done .cf-back { background: #86d9b6; }
+  .viz-cube.cur { transform: translateZ(14px); }
+  .viz-cube.cur .cf-top { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
+    box-shadow: 0 0 24px 6px rgba(99, 91, 255, .45); }
+  .viz-cube.cur .cf-front { background: #8b85ff; color: #fff; }
+  .viz-cube.cur .cf-left, .viz-cube.cur .cf-right, .viz-cube.cur .cf-back { background: #7a73f5; }
+  .viz-packet {
+    --pk: 28px;
+    position: absolute; left: 0; top: 0; width: var(--pk); height: var(--pk); transform-style: preserve-3d;
+    transition: transform 1s cubic-bezier(.45,0,.25,1), opacity .4s;
+  }
+  .viz-packet .pk-face { position: absolute; inset: 0; background: var(--accent-2); border: 1px solid rgba(255,255,255,.5); }
+  .viz-packet .pk-top { transform: translateZ(var(--pk)); background: #5eead4; font: 700 7px var(--mono); color: #134e4a;
+    display: flex; align-items: center; justify-content: center; }
+  .viz-packet .pk-front { transform-origin: bottom; transform: rotateX(-90deg); background: #14b8a6; }
+  .viz-packet .pk-back { transform-origin: top; transform: rotateX(90deg); }
+  .viz-packet .pk-left { transform-origin: left; transform: rotateY(-90deg); background: #0d9488; }
+  .viz-packet .pk-right { transform-origin: right; transform: rotateY(90deg); background: #0f766e; }
+  .viz-caption { text-align: center; min-height: 42px; }
+  .viz-caption b { display: block; color: var(--text); font-size: 15px; }
+  .viz-caption span { color: var(--muted); font-size: 13px; }
+  .viz-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .viz-steps span {
+    font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted);
+    transition: background .3s, color .3s, border-color .3s;
+  }
+  .viz-steps span.done { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
+  .viz-steps span.cur { color: #fff; border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .viz-hint { font-size: 13px; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) {
+    .viz-track { animation: none; }
+    .viz-packet, .viz-cube { transition: none; }
+  }
+  .placeholder { color: var(--muted); display: flex; align-items: center; justify-content: center; flex: 1; text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Ingestion Console</h1>
+    <div class="sub">Upload Excel / CSV files and watch every ingestion stage live</div>
+  </div>
+  <div class="conn"><span id="connDot" class="dot"></span><span id="connText">Connecting…</span></div>
+</header>
+
+<main>
+  <div class="col">
+    <form class="card" id="uploadForm" autocomplete="off">
+      <h2>New ingestion</h2>
+      <label class="field"><span>Tenant ID</span><input type="text" id="tenantId" placeholder="e.g. DM00005" required maxlength="64"></label>
+      <label class="field"><span>Org ID</span><input type="text" id="orgId" placeholder="e.g. OM0000000002" required maxlength="64"></label>
+      <div class="drop" id="drop" tabindex="0">
+        <strong id="dropName">Drop a file here or click to choose</strong>
+        <small id="dropHint">.xlsx, .xls, .csv · max 5 MB</small>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      <button class="primary" id="submitBtn" type="submit">Upload &amp; ingest</button>
+      <div class="bar" id="uploadBar" hidden><i></i></div>
+      <div class="msg" id="formMsg" hidden></div>
+    </form>
+
+    <section class="card jobs">
+      <h2>Jobs <span class="count" id="jobsCount"></span></h2>
+      <div class="jobs-list" id="jobsList"><div class="empty">No ingestions yet</div></div>
+      <div class="pager" id="pager" hidden>
+        <button type="button" id="prevPage">‹ Prev</button>
+        <span id="pageInfo"></span>
+        <button type="button" id="nextPage">Next ›</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="card detail" id="detail">
+    <div class="placeholder" id="placeholder">
+      <div class="viz" id="viz" aria-hidden="true">
+        <div class="viz-title">How an ingestion runs</div>
+        <div class="viz-scene" id="vizScene">
+          <div class="viz-scale" id="vizScale">
+            <div class="viz-plane" id="vizPlane">
+              <div class="viz-track"></div>
+              <div class="viz-packet" id="vizPacket">
+                <div class="pk-face pk-top">XLSX</div><div class="pk-face pk-front"></div><div class="pk-face pk-back"></div>
+                <div class="pk-face pk-left"></div><div class="pk-face pk-right"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="viz-caption"><b id="vizStage"></b><span id="vizDesc"></span></div>
+        <div class="viz-steps" id="vizSteps"></div>
+      </div>
+      <div class="viz-hint">Click a job on the left to open its live dashboard and log</div>
+    </div>
+    <div id="detailBody" class="detail-body" hidden>
+      <div class="detail-head">
+        <div>
+          <h3 id="dName"></h3>
+          <div class="kv" id="dKv"></div>
+        </div>
+        <div class="head-actions">
+          <span class="badge" id="dBadge"></span>
+          <button type="button" class="close-btn" id="closeDetail" title="Close log">Close ✕</button>
+        </div>
+      </div>
+      <div class="stepper" id="stepper"></div>
+      <div class="bar" id="dBar"><i></i></div>
+      <div class="stage-detail" id="dStage" style="margin-top:8px"></div>
+      <div class="errbox" id="dError" hidden></div>
+      <div class="result" id="dResult" hidden></div>
+      <div class="log-tools">
+        <div class="seg" id="filterSeg">
+          <button type="button" data-f="all" class="on">All</button>
+          <button type="button" data-f="stage">Stages</button>
+          <button type="button" data-f="issues">Warnings &amp; errors</button>
+        </div>
+        <label><input type="checkbox" id="autoScroll" checked> Auto-scroll</label>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var MAX_BYTES = 5 * 1024 * 1024;
+  var ALLOWED = [".xlsx", ".xls", ".csv"];
+  var STEPS = ["QUEUED", "READING_FILE", "AI_CLASSIFICATION", "PROCESS_METADATA", "THEME_MAPPING", "UPSERT", "EXPORT", "COMPLETED"];
+  var STEP_LABEL = {
+    QUEUED: "Queued", READING_FILE: "Reading file", AI_CLASSIFICATION: "AI classify",
+    PROCESS_METADATA: "Process", THEME_MAPPING: "Theme map", UPSERT: "Upsert", EXPORT: "Export", COMPLETED: "Done"
+  };
+  var MAX_LOG_LINES = 5000;
+  // API base derived from where this page is served: "/dashboard" -> "/api/",
+  // "/data-model-ingestion/dashboard" (behind the reverse proxy) -> "/data-model-ingestion/api/".
+  var API = location.pathname.replace(/\/dashboard\/?$/, "") + "/api/";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var jobs = {};
+  var selectedId = null;
+  var jobES = null;
+  var selectedFile = null;
+  var logFilter = "all";
+  var PAGE_SIZE = 6;
+  var page = 1;
+
+  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+
+  // ---------------- Upload form ----------------
+  $("tenantId").value = load("ingest.tenant");
+  $("orgId").value = load("ingest.org");
+
+  function fmtBytes(n) {
+    if (n == null) return "";
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(2) + " MB";
+  }
+  function showMsg(text, kind) {
+    var m = $("formMsg");
+    m.textContent = text; m.className = "msg " + kind; m.hidden = false;
+  }
+  function validateFile(f) {
+    if (!f) return "Choose a file to upload.";
+    var name = f.name.toLowerCase();
+    var ok = ALLOWED.some(function (ext) { return name.slice(-ext.length) === ext; });
+    if (!ok) return "Unsupported file type. Allowed: " + ALLOWED.join(", ");
+    if (f.size === 0) return "File is empty.";
+    if (f.size > MAX_BYTES) return "File is " + fmtBytes(f.size) + ". Maximum allowed size is 5 MB.";
+    return null;
+  }
+  function pickFile(f) {
+    selectedFile = f || null;
+    $("formMsg").hidden = true;
+    if (!f) { $("dropName").textContent = "Drop a file here or click to choose"; $("dropHint").textContent = ".xlsx, .xls, .csv · max 5 MB"; return; }
+    $("dropName").textContent = f.name;
+    var err = validateFile(f);
+    $("dropHint").textContent = fmtBytes(f.size) + (err ? "" : " · ready");
+    if (err) showMsg(err, "err");
+  }
+  var drop = $("drop");
+  drop.addEventListener("click", function () { $("fileInput").click(); });
+  drop.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } });
+  $("fileInput").addEventListener("change", function (e) { pickFile(e.target.files[0]); });
+  ["dragenter", "dragover"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function (e) { if (e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]); });
+
+  $("uploadForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var tenant = $("tenantId").value.trim();
+    var org = $("orgId").value.trim();
+    if (!tenant || !org) { showMsg("Tenant ID and Org ID are required.", "err"); return; }
+    var err = validateFile(selectedFile);
+    if (err) { showMsg(err, "err"); return; }
+    store("ingest.tenant", tenant); store("ingest.org", org);
+
+    var fd = new FormData();
+    fd.append("tenant_id", tenant);
+    fd.append("org_id", org);
+    fd.append("file", selectedFile);
+
+    var btn = $("submitBtn"), bar = $("uploadBar");
+    btn.disabled = true; btn.textContent = "Uploading…";
+    bar.hidden = false; bar.className = "bar"; bar.firstElementChild.style.width = "0%";
+    $("formMsg").hidden = true;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", API + "ingest/upload");
+    xhr.upload.onprogress = function (ev) {
+      if (ev.lengthComputable) bar.firstElementChild.style.width = Math.round(ev.loaded / ev.total * 100) + "%";
+    };
+    xhr.onload = function () {
+      btn.disabled = false; btn.textContent = "Upload & ingest";
+      var body = {};
+      try { body = JSON.parse(xhr.responseText); } catch (x) {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        bar.className = "bar ok"; bar.firstElementChild.style.width = "100%";
+        showMsg("Queued as " + body.job_id, "ok");
+        pickFile(null); $("fileInput").value = "";
+        $("formMsg").hidden = false;
+        page = 1;                                   // new job is on top of page 1
+        upsertJob({ job_id: body.job_id, file_name: "", status: "queued", stage: "QUEUED", progress: 0, tenant_id: tenant, org_id: org, created_at: new Date().toISOString() }, true);
+        selectJob(body.job_id);
+      } else {
+        bar.className = "bar err"; bar.firstElementChild.style.width = "100%";
+        var detail = body.detail;
+        if (Array.isArray(detail)) detail = detail.map(function (d) { return d.msg; }).join("; ");
+        showMsg(detail || ("Upload failed (HTTP " + xhr.status + ")"), "err");
+      }
+    };
+    xhr.onerror = function () {
+      btn.disabled = false; btn.textContent = "Upload & ingest";
+      bar.className = "bar err";
+      showMsg("Network error while uploading.", "err");
+    };
+    xhr.send(fd);
+  });
+
+  // ---------------- Jobs list (global SSE) ----------------
+  function setConn(state) {
+    $("connDot").className = "dot " + (state === "live" ? "live" : state === "down" ? "down" : "");
+    $("connText").textContent = state === "live" ? "Live" : state === "down" ? "Reconnecting…" : "Connecting…";
+  }
+  function upsertJob(j, onlyIfMissing) {
+    if (!j || !j.job_id) return;
+    if (onlyIfMissing && jobs[j.job_id]) return;
+    jobs[j.job_id] = Object.assign(jobs[j.job_id] || {}, j);
+    renderJobs();
+    if (j.job_id === selectedId) renderDetail();
+  }
+  var globalES = new EventSource(API + "jobs/stream");
+  globalES.onopen = function () { setConn("live"); };
+  globalES.onerror = function () { setConn("down"); };
+  globalES.addEventListener("snapshot", function (e) {
+    var data = JSON.parse(e.data);
+    (data.jobs || []).forEach(function (j) { jobs[j.job_id] = Object.assign(jobs[j.job_id] || {}, j); });
+    renderJobs();
+    if (selectedId) renderDetail();          // nothing is opened on page load; click a job to see its log
+  });
+  globalES.addEventListener("job", function (e) { upsertJob(JSON.parse(e.data)); });
+
+  function parseTs(s) { return s ? new Date(s) : null; }
+  function duration(j) {
+    var a = parseTs(j.started_at); if (!a) return "";
+    var b = parseTs(j.finished_at) || new Date();
+    var s = Math.max(0, Math.round((b - a) / 1000));
+    return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + (s % 60) + "s";
+  }
+  function timeOnly(s) {
+    var d = parseTs(s); if (!d || isNaN(d)) return "";
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function stageText(j) {
+    if (j.status === "completed") return "Completed";
+    if (j.status === "failed") return "Failed";
+    if (j.status === "interrupted") return "Interrupted";
+    var t = STEP_LABEL[j.stage] || j.stage || "";
+    if (j.sheet_index && j.total_sheets && ["AI_CLASSIFICATION", "PROCESS_METADATA", "THEME_MAPPING", "UPSERT"].indexOf(j.stage) >= 0) {
+      t += " · " + j.sheet_index + "/" + j.total_sheets;
+    }
+    return t;
+  }
+  function barClass(j) { return "bar" + (j.status === "completed" ? " ok" : (j.status === "failed" || j.status === "interrupted") ? " err" : ""); }
+
+  function renderJobs() {
+    var list = $("jobsList");
+    var arr = Object.keys(jobs).map(function (k) { return jobs[k]; })
+      .sort(function (a, b) { return (b.created_at || "").localeCompare(a.created_at || ""); });
+    $("jobsCount").textContent = arr.length ? arr.length + " total" : "";
+    if (!arr.length) { list.innerHTML = '<div class="empty">No ingestions yet</div>'; $("pager").hidden = true; return; }
+    var pages = Math.max(1, Math.ceil(arr.length / PAGE_SIZE));
+    if (page > pages) page = pages;
+    $("pager").hidden = pages <= 1;
+    $("pageInfo").textContent = "Page " + page + " of " + pages;
+    $("prevPage").disabled = page <= 1;
+    $("nextPage").disabled = page >= pages;
+    list.textContent = "";
+    arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).forEach(function (j) {
+      var el = document.createElement("div");
+      el.className = "job " + (j.status || "") + (j.job_id === selectedId ? " sel" : "");
+      el.dataset.id = j.job_id;
+
+      var r1 = document.createElement("div"); r1.className = "row1";
+      var nm = document.createElement("div"); nm.className = "name"; nm.textContent = j.file_name || j.job_id; nm.title = j.file_name || "";
+      var bd = document.createElement("span"); bd.className = "badge " + (j.status || ""); bd.textContent = stageText(j);
+      r1.appendChild(nm); r1.appendChild(bd);
+
+      var meta = document.createElement("div"); meta.className = "meta";
+      var left = document.createElement("span"); left.textContent = (j.tenant_id || "") + " · " + (j.org_id || "");
+      var right = document.createElement("span"); right.className = "dur"; right.textContent = duration(j) || timeOnly(j.created_at);
+      meta.appendChild(left); meta.appendChild(right);
+
+      var bar = document.createElement("div"); bar.className = barClass(j);
+      var fill = document.createElement("i"); fill.style.width = (j.status === "failed" || j.status === "interrupted" ? 100 : (j.progress || 0)) + "%";
+      bar.appendChild(fill);
+
+      el.appendChild(r1); el.appendChild(meta); el.appendChild(bar);
+      el.addEventListener("click", function () { selectJob(j.job_id); });
+      list.appendChild(el);
+    });
+  }
+
+  $("prevPage").addEventListener("click", function () { if (page > 1) { page--; renderJobs(); } });
+  $("nextPage").addEventListener("click", function () { page++; renderJobs(); });
+
+  // ---------------- Job detail + live log ----------------
+  function selectJob(id) {
+    if (!id) return;
+    if (id === selectedId && jobES) return;
+    selectedId = id;
+    if (jobES) { jobES.close(); jobES = null; }
+    $("log").textContent = "";
+    $("placeholder").hidden = true;
+    $("detailBody").hidden = false;
+    renderJobs();
+    renderDetail();
+
+    var es = new EventSource(API + "jobs/" + encodeURIComponent(id) + "/stream");
+    jobES = es;
+    es.addEventListener("job", function (e) { if (jobES === es) upsertJob(JSON.parse(e.data)); });
+    es.addEventListener("log", function (e) { if (jobES === es) appendLog(JSON.parse(e.data)); });
+    es.addEventListener("stage", function (e) {
+      if (jobES !== es) return;
+      var s = JSON.parse(e.data);
+      upsertJob({ job_id: id, stage: s.stage, progress: s.progress, sheet_index: s.sheet_index, total_sheets: s.total_sheets, stage_detail: s.detail });
+    });
+    es.addEventListener("done", function () { es.close(); if (jobES === es) jobES = null; });
+  }
+
+  function closeDetail() {
+    if (jobES) { jobES.close(); jobES = null; }
+    selectedId = null;
+    $("log").textContent = "";
+    $("detailBody").hidden = true;
+    $("placeholder").hidden = false;
+    renderJobs();
+  }
+  $("closeDetail").addEventListener("click", closeDetail);
+
+  function appendLog(ev) {
+    var log = $("log");
+    var ln = document.createElement("div");
+    ln.className = "ln " + (ev.level || "INFO");
+    ln.dataset.level = ev.level || "INFO";
+    var t = document.createElement("span"); t.className = "t"; t.textContent = timeOnly(ev.ts);
+    var l = document.createElement("span"); l.className = "l"; l.textContent = ev.level || "INFO";
+    var m = document.createElement("span"); m.className = "m"; m.textContent = ev.msg;
+    ln.appendChild(t); ln.appendChild(l); ln.appendChild(m);
+    ln.hidden = !passesFilter(ln.dataset.level);
+    log.appendChild(ln);
+    while (log.childElementCount > MAX_LOG_LINES) log.removeChild(log.firstElementChild);
+    if ($("autoScroll").checked) log.scrollTop = log.scrollHeight;
+  }
+  function passesFilter(level) {
+    if (logFilter === "all") return true;
+    if (logFilter === "stage") return level === "STAGE" || level === "SUCCESS" || level === "ERROR";
+    return level === "WARNING" || level === "ERROR";
+  }
+  $("filterSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    logFilter = b.dataset.f;
+    Array.prototype.forEach.call(this.children, function (c) { c.classList.toggle("on", c === b); });
+    Array.prototype.forEach.call($("log").children, function (ln) { ln.hidden = !passesFilter(ln.dataset.level); });
+    if ($("autoScroll").checked) $("log").scrollTop = $("log").scrollHeight;
+  });
+
+  function kv(label, value) {
+    var s = document.createElement("span");
+    s.appendChild(document.createTextNode(label + " "));
+    var b = document.createElement("b"); b.textContent = value; s.appendChild(b);
+    return s;
+  }
+
+  function renderDetail() {
+    var j = jobs[selectedId]; if (!j) return;
+    $("dName").textContent = j.file_name || j.job_id;
+    var k = $("dKv"); k.textContent = "";
+    k.appendChild(kv("Job", j.job_id));
+    k.appendChild(kv("Tenant", j.tenant_id || "-"));
+    k.appendChild(kv("Org", j.org_id || "-"));
+    if (j.file_size) k.appendChild(kv("Size", fmtBytes(j.file_size)));
+    if (j.started_at) k.appendChild(kv("Duration", duration(j)));
+    var badge = $("dBadge"); badge.className = "badge " + (j.status || ""); badge.textContent = (j.status || "").toUpperCase();
+
+    // Stepper
+    var failed = j.status === "failed" || j.status === "interrupted";
+    var curIdx = STEPS.indexOf(j.stage);
+    if (j.status === "completed") curIdx = STEPS.length - 1;
+    var st = $("stepper"); st.textContent = "";
+    STEPS.forEach(function (s, i) {
+      var d = document.createElement("div"); d.className = "step";
+      if (i < curIdx || (j.status === "completed")) d.classList.add("done");
+      if (i === curIdx && j.status !== "completed") {
+        d.classList.add(failed ? "fail" : "cur");
+        if (j.status === "running") d.classList.add("pulse");
+      }
+      d.textContent = STEP_LABEL[s];
+      st.appendChild(d);
+    });
+
+    var bar = $("dBar"); bar.className = barClass(j);
+    bar.firstElementChild.style.width = (failed ? 100 : (j.progress || 0)) + "%";
+
+    var sd = $("dStage"); sd.textContent = "";
+    if (j.sheet_index && j.total_sheets && !failed && j.status !== "completed") {
+      sd.appendChild(kv("Sheet", j.sheet_index + " of " + j.total_sheets));
+      sd.appendChild(document.createTextNode("  "));
+    }
+    if (j.stage_detail) sd.appendChild(document.createTextNode(j.stage_detail));
+    else if (j.status === "queued") sd.appendChild(document.createTextNode("Waiting for a free worker…"));
+
+    var eb = $("dError");
+    if (j.error) { eb.textContent = j.error; eb.hidden = false; } else { eb.hidden = true; }
+
+    var rb = $("dResult");
+    var r = j.result;
+    if (j.status === "completed" && r) {
+      rb.textContent = "";
+      var head = document.createElement("b"); head.textContent = "Ingested into " + (r.target_table || "-");
+      rb.appendChild(head);
+      var sheets = (r.sheets || []).join(", ");
+      rb.appendChild(document.createTextNode(" · " + (r.total_sheets || 0) + " sheet(s)" + (sheets ? ": " + sheets : "")));
+      var files = r.exported_files && typeof r.exported_files === "object" ? Object.values(r.exported_files).filter(Boolean) : [];
+      if (files.length) {
+        var f = document.createElement("div"); f.style.marginTop = "4px"; f.style.color = "var(--muted)";
+        f.textContent = "Exports: " + files.join(" | ");
+        rb.appendChild(f);
+      }
+      rb.hidden = false;
+    } else {
+      rb.hidden = true;
+    }
+  }
+
+  // ---------------- Empty-state 3D pipeline animation ----------------
+  var VIZ_DESC = {
+    QUEUED: "File uploaded and queued for a free worker",
+    READING_FILE: "Reading the Excel / CSV sheets and tables",
+    AI_CLASSIFICATION: "AI identifies the statement type and columns",
+    PROCESS_METADATA: "Resolves process code, theme and target table",
+    THEME_MAPPING: "Maps source columns to the theme fields",
+    UPSERT: "Validates and upserts rows into the tenant database",
+    EXPORT: "Writes the processed export files",
+    COMPLETED: "Ingestion finished"
+  };
+  var VIZ_SHORT = ["QUEUE", "READ", "AI", "PROC", "MAP", "UPSERT", "EXPORT", "DONE"];
+  var vizCubes = [], vizChips = [], vizI = -1;
+  var CUBE = 64, GAP = 120, X0 = 38, Y0 = 43, PK = 28;
+  STEPS.forEach(function (s, i) {
+    var c = document.createElement("div"); c.className = "viz-cube"; c.style.left = (X0 + i * GAP) + "px";
+    ["cf-back", "cf-left", "cf-right", "cf-front", "cf-top"].forEach(function (f) {
+      var d = document.createElement("div"); d.className = "cf " + f;
+      if (f === "cf-front") d.textContent = (i < 9 ? "0" : "") + (i + 1);
+      if (f === "cf-top") d.textContent = VIZ_SHORT[i];
+      c.appendChild(d);
+    });
+    $("vizPlane").appendChild(c); vizCubes.push(c);
+    var chip = document.createElement("span"); chip.textContent = STEP_LABEL[s];
+    $("vizSteps").appendChild(chip); vizChips.push(chip);
+  });
+  function vizPacketTo(i, instant) {
+    var p = $("vizPacket");
+    if (instant) p.style.transition = "none";
+    var x = X0 + i * GAP + (CUBE - PK) / 2, y = Y0 + (CUBE - PK) / 2;
+    p.style.transform = "translate3d(" + x + "px," + y + "px," + (CUBE + 16) + "px)";
+    if (instant) { void p.offsetWidth; p.style.transition = ""; }
+  }
+  function vizFit() {
+    var w = $("vizScene").clientWidth;
+    $("vizScale").style.transform = "scale(" + Math.min(1, Math.max(.35, (w - 20) / 1000)) + ")";
+  }
+  function vizTick() {
+    if ($("placeholder").hidden) return;
+    vizI = (vizI + 1) % (STEPS.length + 2);              // two extra ticks: hold on "done", then restart
+    var p = $("vizPacket");
+    if (vizI === 0) { vizPacketTo(0, true); p.style.opacity = 1; }
+    var cur = Math.min(vizI, STEPS.length - 1);
+    if (vizI <= STEPS.length - 1) vizPacketTo(cur);
+    if (vizI === STEPS.length + 1) p.style.opacity = 0;
+    vizCubes.forEach(function (c, i) {
+      var done = i < cur || (vizI >= STEPS.length - 1 && i === STEPS.length - 1);
+      c.className = "viz-cube" + (done ? " done" : i === cur ? " cur" : "");
+      vizChips[i].className = done ? "done" : i === cur ? "cur" : "";
+    });
+    var s = STEPS[cur];
+    $("vizStage").textContent = (cur + 1) + ". " + STEP_LABEL[s];
+    $("vizDesc").textContent = VIZ_DESC[s];
+  }
+  vizFit(); vizTick();
+  window.addEventListener("resize", vizFit);
+  setInterval(vizTick, 1500);
+  $("closeDetail").addEventListener("click", vizFit);
+
+  // Tick running durations
+  setInterval(function () {
+    var running = Object.keys(jobs).some(function (k) { return jobs[k].status === "running"; });
+    if (!running) return;
+    Array.prototype.forEach.call(document.querySelectorAll(".job"), function (el) {
+      var j = jobs[el.dataset.id]; if (j && j.status === "running") el.querySelector(".dur").textContent = duration(j);
+    });
+    var sel = jobs[selectedId];
+    if (sel && sel.status === "running") renderDetail();
+  }, 1000);
+})();
+</script>
+</body>
+</html>

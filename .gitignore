@@ -25,3 +25,8 @@ log_*.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+
+# Dashboard uploads & per-job logs
+uploads/
+logs/

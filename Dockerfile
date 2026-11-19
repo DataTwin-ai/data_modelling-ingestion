@@ -14,12 +14,14 @@ RUN pip install -r requirements.txt
 
 # Application code only. config.ini is NOT baked in: it is mounted at
 # /app/config.ini at runtime (see deploy/deploy.sh).
-COPY app.py api.py ./
+COPY app.py api.py job_manager.py ./
+COPY dashboard/ ./dashboard/
 
 # Non-root user. /app must be writable because app.py writes log_<ts>.txt
-# next to itself; /app/exports is mounted from the host.
+# next to itself; /app/exports, /app/uploads (dashboard uploads) and /app/logs
+# (dashboard job history) are mounted from the host.
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser \
-    && mkdir -p /app/exports \
+    && mkdir -p /app/exports /app/uploads /app/logs/jobs \
     && chown -R appuser:appuser /app
 USER appuser
 

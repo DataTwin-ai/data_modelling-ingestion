@@ -75,7 +75,7 @@ log "pulling ${NEW_IMAGE}"
 docker pull "$NEW_IMAGE" >/dev/null
 
 # ---------------------------------------------------------------- config
-mkdir -p "$APP_DIR/exports"
+mkdir -p "$APP_DIR/exports" "$APP_DIR/uploads" "$APP_DIR/logs/jobs"
 tmp_cfg=$(mktemp "$APP_DIR/.config.ini.XXXXXX")
 aws_cli ssm get-parameter --region "$AWS_REGION" --name "$CONFIG_PARAM" \
   --with-decryption --query Parameter.Value --output text > "$tmp_cfg"
@@ -83,6 +83,8 @@ aws_cli ssm get-parameter --region "$AWS_REGION" --name "$CONFIG_PARAM" \
 chmod 600 "$tmp_cfg"
 mv -f "$tmp_cfg" "$APP_DIR/config.ini"
 chown "$APP_UID:$APP_UID" "$APP_DIR/config.ini" "$APP_DIR/exports"
+# Dashboard uploads + job history live on the host so they survive redeploys.
+chown -R "$APP_UID:$APP_UID" "$APP_DIR/uploads" "$APP_DIR/logs"
 
 # ---------------------------------------------------------------- run
 run_container() {
@@ -92,6 +94,8 @@ run_container() {
     -p "${BIND_ADDR}:${HOST_PORT}:8000" \
     -v "$APP_DIR/config.ini:/app/config.ini:ro" \
     -v "$APP_DIR/exports:/app/exports" \
+    -v "$APP_DIR/uploads:/app/uploads" \
+    -v "$APP_DIR/logs:/app/logs" \
     -e ROOT_PATH="$ROOT_PATH" \
     --log-driver json-file --log-opt max-size=20m --log-opt max-file=5 \
     --label "app=${CONTAINER}" \
