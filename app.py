@@ -508,6 +508,60 @@ def _rows_already_stored(conn, table_name, df, tenant_id):
         return False
     return all(stored.get(k, 0) >= n for k, n in need.items())
 
+
+def _drop_fs_duplicate_lines(conn, table_name, df, tenant_id, transaction_id):
+    """Audited books (FS): one copy of each statement line per org and financial year.
+    Incoming rows whose (orgid, financial_year, internal_link_ref) is already stored under another
+    key - the same book uploaded again as another file, or with a new theme - are duplicates and are
+    dropped. Same key (same file re-uploaded) -> normal upsert. Rows of the current upload never count.
+    Returns (rows to load, number dropped, source file of the stored copy)."""
+    cols = {str(c).lower(): c for c in df.columns}
+    fy_name = "financial_year" if "financial_year" in cols else ("fiscalyear" if "fiscalyear" in cols else None)
+    if df is None or df.empty or not fy_name or "orgid" not in cols or "internal_link_ref" not in cols:
+        return df, 0, None
+
+    def _t(v):
+        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+
+    org_c, fy_c, link_c = cols["orgid"], cols[fy_name], cols["internal_link_ref"]
+    keyed = [i for i in df.index if _t(df.at[i, org_c]) and _t(df.at[i, fy_c]) and _t(df.at[i, link_c])]
+    if not keyed:
+        return df, 0, None
+    batch = re.sub(r"_S\d+$", "", str(transaction_id or ""))
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT a.attname FROM pg_index i
+                           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                           WHERE i.indrelid = to_regclass(%s) AND i.indisprimary ORDER BY a.attname""", (table_name,))
+            pk = [r[0] for r in cur.fetchall() if r[0] in cols and r[0] != "tenant_id"]
+            if not pk:
+                return df, 0, None
+            sel = ", ".join(f'"{c}"' for c in pk)
+            params = [sorted({_t(df.at[i, org_c]) for i in keyed}), sorted({_t(df.at[i, link_c]) for i in keyed})]
+            this_upload = ""
+            if batch:   # rows written by earlier sheets of this same upload
+                this_upload = " AND coalesce(transactionid, '') NOT LIKE %s"
+                params.append(batch.replace("_", r"\_") + "%")
+            cur.execute(
+                f'SELECT orgid, "{fy_name}", internal_link_ref, input, {sel} FROM "{table_name}" '
+                f"WHERE {tenant_filter(tenant_id)}orgid = ANY(%s) AND internal_link_ref = ANY(%s){this_upload}",
+                params)
+            stored = {}
+            for r in cur.fetchall():
+                stored.setdefault((_t(r[0]), _t(r[1]), _t(r[2])), []).append((tuple(_t(v) for v in r[4:]), _t(r[3])))
+    except Exception as e:
+        conn.rollback()
+        clog(f"Notice: FS duplicate check skipped ({e})", "WARNING")
+        return df, 0, None
+
+    drop, src = [], None
+    for i in keyed:
+        hits = stored.get((_t(df.at[i, org_c]), _t(df.at[i, fy_c]), _t(df.at[i, link_c])))
+        if hits and tuple(_t(df.at[i, cols[c]]) for c in pk) not in {h[0] for h in hits}:
+            drop.append(i)
+            src = src or hits[0][1]
+    return df.drop(index=drop), len(drop), src
+
 args = sys.argv
 def get_argument_value(arg_name, default=""):
     if arg_name in args:
@@ -4368,6 +4422,15 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
     # Every row already stored with the same content (same file uploaded again under another name /
     # theme, so its keys differ): nothing to add - never insert a second copy
+    if str(ProcessCode).strip().upper() == 'FS':
+        res, n_dup, dup_src = _drop_fs_duplicate_lines(tenant_conn, table_name.lower(), res, TenantID, TransactionID)
+        if n_dup:
+            clog(f"⚠️ {n_dup} FS row(s) skipped: this org / financial year already has these statement lines "
+                 f"(loaded from '{os.path.basename(dup_src or '')}'). Delete those rows first to load a replacement.",
+                 "WARNING")
+        if res.empty:
+            return f"Data successfully loaded into {table_name} (Inserted: 0, Updated: 0, Skipped: {n_dup} duplicate)"
+
     if _rows_already_stored(tenant_conn, table_name.lower(), res, TenantID):
         clog(f"📊 Table '{table_name}': all {len(res)} row(s) of this sheet are already stored "
              f"(same content checksum) - nothing inserted", "INFO")
