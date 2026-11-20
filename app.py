@@ -232,6 +232,119 @@ def fill_gstr9_link_refs(res):
          "SUCCESS" if filled else "WARNING")
     return res
 
+
+# FS (audited books) internal link refs: ordered entries {statementtype, internal_link_ref, section,
+# description} shipped with the code (generated from Audited_Book_internal_linkref_updated-v2.xlsx).
+FS_LINKREF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mappings", "fs_internal_link_refs.json")
+_FS_STATEMENTS = ("Balance Sheet", "Profit and Loss", "Notes to Accounts")
+
+
+def _fs_norm(v):
+    v = str(v or "").replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
+    return re.sub(r"\s+", " ", v).strip().lower()
+
+
+def _fs_note_no(section):
+    m = re.match(r"^(?:note\s+)?(\d+[a-z]?)\b", _fs_norm(section))
+    return m.group(1).upper() if m else None
+
+
+def _load_fs_link_refs():
+    try:
+        with open(FS_LINKREF_FILE, encoding="utf-8") as fh:
+            return json.load(fh).get("entries", [])
+    except Exception as e:
+        clog(f"Notice: FS link-ref mapping not loaded ({e})", "WARNING")
+        return []
+
+
+def fill_fs_link_refs(res):
+    """Fill internal_link_ref + section on FS rows (one sheet) from the shipped mapping.
+    Line items: statement type + note number (tablecode, Notes only) + account description,
+    each mapping entry used once, in order (repeated lines such as TOTAL).
+    Rows left without a link get a section only: headings -> the next linked row's path cut at
+    the matching segment, Balance Sheet / P&L footers -> the statement name, note narrative ->
+    the previous row's section."""
+    entries = _load_fs_link_refs()
+    if not entries or res is None or res.empty:
+        return res
+    cols = {str(c).lower(): c for c in res.columns}
+    desc_col, st_col = cols.get("accountdescription"), cols.get("statementtype")
+    if not desc_col or not st_col:
+        return res
+    tc_col = cols.get("tablecode")
+    for c in ("internal_link_ref", "section"):
+        if c not in cols:
+            res[c] = None
+            cols[c] = c
+    link_col, sec_col = cols["internal_link_ref"], cols["section"]
+
+    def _txt(v):
+        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+
+    idxs = list(res.index)
+    stmt = {i: _txt(res.at[i, st_col]) for i in idxs}
+    if not any(st in _FS_STATEMENTS for st in stmt.values()):
+        return res
+
+    # 1. line items -> link + section
+    used, linked = set(), set()
+    for i in idxs:
+        st = stmt[i]
+        if st not in _FS_STATEMENTS:
+            continue
+        nd = _fs_norm(res.at[i, desc_col])
+        if not nd:
+            continue
+        tc = _txt(res.at[i, tc_col]).upper() if tc_col else ""
+        if re.fullmatch(r"\d+\.0+", tc):          # note number read as a float ("10.0") -> "10"
+            tc = tc.split(".")[0]
+            res.at[i, tc_col] = tc
+        for k, e in enumerate(entries):
+            if k in used or e.get("statementtype") != st:
+                continue
+            if st == "Notes to Accounts" and _fs_note_no(e.get("section")) != tc:
+                continue
+            sec, md = e.get("section", ""), e.get("description", "")
+            if nd in (_fs_norm(md), _fs_norm(f"{sec.split(' > ')[-1]} - {md}"), _fs_norm(f"{sec} - {md}")):
+                used.add(k)
+                linked.add(i)
+                res.at[i, link_col] = e["internal_link_ref"]
+                if sec:
+                    res.at[i, sec_col] = sec
+                break
+
+    # 2. rows without a link -> section only (rows are visited in order, so later rows see filled values)
+    for pos, i in enumerate(idxs):
+        st = stmt[i]
+        if i in linked or st not in _FS_STATEMENTS:
+            continue
+        desc = _fs_norm(res.at[i, desc_col])
+        nxt = next((j for j in idxs[pos + 1:] if j in linked), None)
+        prev = next((j for j in reversed(idxs[:pos]) if _txt(res.at[j, sec_col])), None)
+        new = None
+        if nxt is not None:
+            segs = [x.strip() for x in _txt(res.at[nxt, sec_col]).split(" > ")]
+            hit = next((k for k, sg in enumerate(segs)
+                        if _fs_norm(sg) == desc or _fs_norm(sg).startswith(desc[:40])), None)
+            if hit is not None:
+                new = " > ".join(segs[:hit + 1])
+        if new is None and st in ("Balance Sheet", "Profit and Loss"):
+            if nxt is not None and prev is None:
+                new = _txt(res.at[nxt, sec_col]).split(" > ")[0]
+            elif nxt is not None:
+                new = _txt(res.at[nxt, sec_col])
+            else:
+                new = st
+        if new is None and prev is not None:
+            new = _txt(res.at[prev, sec_col])
+        if new:
+            res.at[i, sec_col] = new
+
+    clog(f"FS link refs: linked {len(linked)}/{len(res)} row(s) from {os.path.basename(FS_LINKREF_FILE)}; "
+         f"section filled on {sum(1 for i in idxs if _txt(res.at[i, sec_col]))}", "SUCCESS" if linked else "WARNING")
+    return res
+
 # Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
 # On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
 KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
@@ -4092,6 +4205,10 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
     if str(ProcessCode).strip().upper() in ('TAXSYS', 'GSTR') and _st_col is not None \
             and res[_st_col].astype(str).str.upper().eq('GSTR9').any():
         res = fill_gstr9_link_refs(res)
+
+    # Audited books (FS): internal_link_ref + section from the shipped mapping
+    if str(ProcessCode).strip().upper() == 'FS':
+        res = fill_fs_link_refs(res)
 
     # Register auto-promoted extra columns in theme_mapping so reverse Excel export maps back to original source headers
     extra_col_map = dict(getattr(res, 'attrs', {}).get('extra_col_map', {}))
