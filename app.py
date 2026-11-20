@@ -441,7 +441,7 @@ clog.debug = lambda msg: clog(msg, "DEBUG")
 
 import hashlib
 
-def compute_row_checksum(df, exclude_cols=None):
+def compute_row_checksum(df, exclude_cols=None, extra_exclude=None):
     """
     Computes a deterministic MD5 checksum for each row based strictly on business/data columns.
     Excludes system, metadata, and audit columns to prevent false mismatches.
@@ -450,8 +450,11 @@ def compute_row_checksum(df, exclude_cols=None):
         exclude_cols = {
             'sno', 'themename', 'processcode', 'checksum', 'input', 'output', 
             'transactionid', 'inprdfrom', 'inprdto', 'createddatetime', 
-            'createdby', 'modifiedby', 'modifieddatetime'
+            'createdby', 'modifiedby', 'modifieddatetime',
+            # ids generated per upload are not row content: the same row must hash the same every time
+            'createdid', 'tenant_id'
         }
+    exclude_cols = set(exclude_cols) | {str(c).lower() for c in (extra_exclude or ())}
     data_cols = sorted([str(c).lower() for c in df.columns if str(c).lower() not in exclude_cols])
     
     col_map = {str(c).lower(): c for c in df.columns}
@@ -471,6 +474,39 @@ def compute_row_checksum(df, exclude_cols=None):
         return hashlib.md5(raw_str.encode('utf-8')).hexdigest()
 
     return df.apply(row_hash, axis=1)
+
+
+def _rows_already_stored(conn, table_name, df, tenant_id):
+    """True when every row of `df` is already in `table_name` with the same content checksum for the
+    same process / org (repeated rows counted): the sheet adds nothing new, e.g. the same file
+    uploaded again under another name, whose theme and keys therefore differ."""
+    if df is None or df.empty or "checksum" not in df.columns:
+        return False
+    cols = {str(c).lower(): c for c in df.columns}
+    where, params = [], []
+    for key in ("processcode", "orgid"):
+        if key in cols:
+            vals = df[cols[key]].dropna().astype(str).unique()
+            if len(vals) != 1:
+                return False
+            where.append(f"{key} = %s")
+            params.append(vals[0])
+    need = df["checksum"].astype(str).value_counts()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                        "AND table_name = %s AND column_name = 'checksum'", (table_name,))
+            if not cur.fetchone():
+                return False
+            where.append("checksum = ANY(%s)")
+            params.append(list(need.index))
+            cur.execute(f'SELECT checksum, count(*) FROM "{table_name}" WHERE {tenant_filter(tenant_id)}'
+                        f'{" AND ".join(where)} GROUP BY checksum', params)
+            stored = dict(cur.fetchall())
+    except Exception:
+        conn.rollback()
+        return False
+    return all(stored.get(k, 0) >= n for k, n in need.items())
 
 args = sys.argv
 def get_argument_value(arg_name, default=""):
@@ -4050,6 +4086,7 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
     res_cols = {col.lower(): col for col in res.columns}
     
+    auto_id_cols = set()   # key columns filled with generated ids (e.g. createdid): not row content
     for lde_col in lde_domains:
         col = lde_col.lower()
 
@@ -4081,6 +4118,7 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
                 else:
                     # Idempotent key lookup: reuse existing auto-ids if records already exist for this (processcode, themename, sno)
+                    auto_id_cols.add(col)
                     existing_id_map = {}
                     try:
                         with tenant_conn.cursor() as cur_map:
@@ -4326,7 +4364,14 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
             clog(f"Notice: extra column theme registration: {e_ext}", "WARNING")
 
     # Calculate deterministic row checksum across data columns
-    res["checksum"] = compute_row_checksum(res)
+    res["checksum"] = compute_row_checksum(res, extra_exclude=auto_id_cols)
+
+    # Every row already stored with the same content (same file uploaded again under another name /
+    # theme, so its keys differ): nothing to add - never insert a second copy
+    if _rows_already_stored(tenant_conn, table_name.lower(), res, TenantID):
+        clog(f"📊 Table '{table_name}': all {len(res)} row(s) of this sheet are already stored "
+             f"(same content checksum) - nothing inserted", "INFO")
+        return f"Data successfully loaded into {table_name} (Inserted: 0, Updated: 0, Skipped: {len(res)})"
     
     response = execute_data_operation_on_postgres(TenantID, res, table_name, lde_domains, 'insert', conn=tenant_conn, cur=tenant_cursor)
     
@@ -4761,11 +4806,23 @@ def Job_Handler(
                     with tenant_conn.cursor() as cur_th:
                         cur_th.execute(QUERIES['check_table_exists'], (f"active_{sheet_proc_code.lower()}",))
                         if cur_th.fetchone():
-                            cur_th.execute(
-                                f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND (transactionid = %s OR statementtype = %s) LIMIT 1",
-                                (effective_data_key, current_txn_id, sheet_name)
-                            )
-                            t_row = cur_th.fetchone()
+                            # Same file again: the sheet at the same position of the earlier upload
+                            # (transaction id suffix _S<n>). Sheet names such as "Notes 1-9" never equal
+                            # their statementtype, so matching on that alone missed them and every
+                            # re-upload got a new theme -> new keys -> a second copy of the rows.
+                            t_row = None
+                            if total_sheets > 1:
+                                cur_th.execute(
+                                    f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND transactionid ~ %s LIMIT 1",
+                                    (effective_data_key, rf"_S{sheet_idx}$")
+                                )
+                                t_row = cur_th.fetchone()
+                            if not t_row:
+                                cur_th.execute(
+                                    f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND (transactionid = %s OR statementtype = %s) LIMIT 1",
+                                    (effective_data_key, current_txn_id, sheet_name)
+                                )
+                                t_row = cur_th.fetchone()
                             if not t_row and total_sheets == 1:
                                 cur_th.execute(
                                     f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s LIMIT 1",
