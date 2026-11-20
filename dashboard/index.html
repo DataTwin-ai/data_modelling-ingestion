@@ -220,6 +220,76 @@
     padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
   }
   .close-btn:hover { color: var(--text, inherit); background: var(--accent-soft); }
+  /* Empty-state 3D pipeline animation */
+  .placeholder { flex-direction: column; gap: 14px; }
+  .viz { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .viz-title { font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--accent); }
+  .viz-scene { width: 100%; height: 300px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .viz-scale { perspective: 1200px; transform-origin: center center; }
+  .viz-plane {
+    --cube: 64px;
+    position: relative; width: 960px; height: 150px; transform-style: preserve-3d;
+    transform: rotateX(60deg) rotateZ(-14deg);
+    border-radius: 18px; border: 1px solid var(--border);
+    background:
+      linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 30px 30px,
+      linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / 30px 30px,
+      var(--panel-2);
+    box-shadow: 0 30px 60px rgba(40, 40, 120, .18);
+  }
+  .viz-track {
+    position: absolute; left: 70px; right: 50px; top: 73px; height: 4px; border-radius: 4px;
+    background: repeating-linear-gradient(90deg, var(--accent) 0 14px, transparent 14px 26px);
+    opacity: .55; animation: vizFlow 1s linear infinite;
+  }
+  @keyframes vizFlow { to { background-position: 26px 0; } }
+  .viz-cube {
+    position: absolute; top: 43px; width: var(--cube); height: var(--cube); transform-style: preserve-3d;
+    transition: transform .45s cubic-bezier(.3,1.6,.5,1);
+  }
+  .viz-cube .cf { position: absolute; inset: 0; border: 1px solid rgba(255,255,255,.35); transition: background .4s; }
+  .viz-cube .cf-top { transform: translateZ(var(--cube)); background: var(--panel); border-color: var(--border); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; font: 700 12px var(--mono); color: var(--muted); }
+  .viz-cube .cf-front { transform-origin: bottom; transform: rotateX(-90deg); background: #c7c9f3;
+    display: flex; align-items: center; justify-content: center; font: 700 13px var(--mono); color: #3730a3; }
+  .viz-cube .cf-back { transform-origin: top; transform: rotateX(90deg); background: #b9bbec; }
+  .viz-cube .cf-left { transform-origin: left; transform: rotateY(-90deg); background: #aeb1e8; }
+  .viz-cube .cf-right { transform-origin: right; transform: rotateY(90deg); background: #a3a6e2; }
+  .viz-cube.done .cf-top { background: var(--ok); color: #fff; border-color: var(--ok); }
+  .viz-cube.done .cf-front { background: #9fe3c7; color: #065f46; }
+  .viz-cube.done .cf-left, .viz-cube.done .cf-right, .viz-cube.done .cf-back { background: #86d9b6; }
+  .viz-cube.cur { transform: translateZ(14px); }
+  .viz-cube.cur .cf-top { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
+    box-shadow: 0 0 24px 6px rgba(99, 91, 255, .45); }
+  .viz-cube.cur .cf-front { background: #8b85ff; color: #fff; }
+  .viz-cube.cur .cf-left, .viz-cube.cur .cf-right, .viz-cube.cur .cf-back { background: #7a73f5; }
+  .viz-packet {
+    --pk: 28px;
+    position: absolute; left: 0; top: 0; width: var(--pk); height: var(--pk); transform-style: preserve-3d;
+    transition: transform 1s cubic-bezier(.45,0,.25,1), opacity .4s;
+  }
+  .viz-packet .pk-face { position: absolute; inset: 0; background: var(--accent-2); border: 1px solid rgba(255,255,255,.5); }
+  .viz-packet .pk-top { transform: translateZ(var(--pk)); background: #5eead4; font: 700 7px var(--mono); color: #134e4a;
+    display: flex; align-items: center; justify-content: center; }
+  .viz-packet .pk-front { transform-origin: bottom; transform: rotateX(-90deg); background: #14b8a6; }
+  .viz-packet .pk-back { transform-origin: top; transform: rotateX(90deg); }
+  .viz-packet .pk-left { transform-origin: left; transform: rotateY(-90deg); background: #0d9488; }
+  .viz-packet .pk-right { transform-origin: right; transform: rotateY(90deg); background: #0f766e; }
+  .viz-caption { text-align: center; min-height: 42px; }
+  .viz-caption b { display: block; color: var(--text); font-size: 15px; }
+  .viz-caption span { color: var(--muted); font-size: 13px; }
+  .viz-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .viz-steps span {
+    font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted);
+    transition: background .3s, color .3s, border-color .3s;
+  }
+  .viz-steps span.done { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
+  .viz-steps span.cur { color: #fff; border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .viz-hint { font-size: 13px; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) {
+    .viz-track { animation: none; }
+    .viz-packet, .viz-cube { transition: none; }
+  }
   .placeholder { color: var(--muted); display: flex; align-items: center; justify-content: center; flex: 1; text-align: center; padding: 40px; }
 </style>
 </head>
@@ -260,7 +330,25 @@
   </div>
 
   <section class="card detail" id="detail">
-    <div class="placeholder" id="placeholder">Click a job on the left to open its live dashboard and log</div>
+    <div class="placeholder" id="placeholder">
+      <div class="viz" id="viz" aria-hidden="true">
+        <div class="viz-title">How an ingestion runs</div>
+        <div class="viz-scene" id="vizScene">
+          <div class="viz-scale" id="vizScale">
+            <div class="viz-plane" id="vizPlane">
+              <div class="viz-track"></div>
+              <div class="viz-packet" id="vizPacket">
+                <div class="pk-face pk-top">XLSX</div><div class="pk-face pk-front"></div><div class="pk-face pk-back"></div>
+                <div class="pk-face pk-left"></div><div class="pk-face pk-right"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="viz-caption"><b id="vizStage"></b><span id="vizDesc"></span></div>
+        <div class="viz-steps" id="vizSteps"></div>
+      </div>
+      <div class="viz-hint">Click a job on the left to open its live dashboard and log</div>
+    </div>
     <div id="detailBody" class="detail-body" hidden>
       <div class="detail-head">
         <div>
@@ -624,6 +712,65 @@
       rb.hidden = true;
     }
   }
+
+  // ---------------- Empty-state 3D pipeline animation ----------------
+  var VIZ_DESC = {
+    QUEUED: "File uploaded and queued for a free worker",
+    READING_FILE: "Reading the Excel / CSV sheets and tables",
+    AI_CLASSIFICATION: "AI identifies the statement type and columns",
+    PROCESS_METADATA: "Resolves process code, theme and target table",
+    THEME_MAPPING: "Maps source columns to the theme fields",
+    UPSERT: "Validates and upserts rows into the tenant database",
+    EXPORT: "Writes the processed export files",
+    COMPLETED: "Ingestion finished"
+  };
+  var VIZ_SHORT = ["QUEUE", "READ", "AI", "PROC", "MAP", "UPSERT", "EXPORT", "DONE"];
+  var vizCubes = [], vizChips = [], vizI = -1;
+  var CUBE = 64, GAP = 120, X0 = 38, Y0 = 43, PK = 28;
+  STEPS.forEach(function (s, i) {
+    var c = document.createElement("div"); c.className = "viz-cube"; c.style.left = (X0 + i * GAP) + "px";
+    ["cf-back", "cf-left", "cf-right", "cf-front", "cf-top"].forEach(function (f) {
+      var d = document.createElement("div"); d.className = "cf " + f;
+      if (f === "cf-front") d.textContent = (i < 9 ? "0" : "") + (i + 1);
+      if (f === "cf-top") d.textContent = VIZ_SHORT[i];
+      c.appendChild(d);
+    });
+    $("vizPlane").appendChild(c); vizCubes.push(c);
+    var chip = document.createElement("span"); chip.textContent = STEP_LABEL[s];
+    $("vizSteps").appendChild(chip); vizChips.push(chip);
+  });
+  function vizPacketTo(i, instant) {
+    var p = $("vizPacket");
+    if (instant) p.style.transition = "none";
+    var x = X0 + i * GAP + (CUBE - PK) / 2, y = Y0 + (CUBE - PK) / 2;
+    p.style.transform = "translate3d(" + x + "px," + y + "px," + (CUBE + 16) + "px)";
+    if (instant) { void p.offsetWidth; p.style.transition = ""; }
+  }
+  function vizFit() {
+    var w = $("vizScene").clientWidth;
+    $("vizScale").style.transform = "scale(" + Math.min(1, Math.max(.35, (w - 20) / 1000)) + ")";
+  }
+  function vizTick() {
+    if ($("placeholder").hidden) return;
+    vizI = (vizI + 1) % (STEPS.length + 2);              // two extra ticks: hold on "done", then restart
+    var p = $("vizPacket");
+    if (vizI === 0) { vizPacketTo(0, true); p.style.opacity = 1; }
+    var cur = Math.min(vizI, STEPS.length - 1);
+    if (vizI <= STEPS.length - 1) vizPacketTo(cur);
+    if (vizI === STEPS.length + 1) p.style.opacity = 0;
+    vizCubes.forEach(function (c, i) {
+      var done = i < cur || (vizI >= STEPS.length - 1 && i === STEPS.length - 1);
+      c.className = "viz-cube" + (done ? " done" : i === cur ? " cur" : "");
+      vizChips[i].className = done ? "done" : i === cur ? "cur" : "";
+    });
+    var s = STEPS[cur];
+    $("vizStage").textContent = (cur + 1) + ". " + STEP_LABEL[s];
+    $("vizDesc").textContent = VIZ_DESC[s];
+  }
+  vizFit(); vizTick();
+  window.addEventListener("resize", vizFit);
+  setInterval(vizTick, 1500);
+  $("closeDetail").addEventListener("click", vizFit);
 
   // Tick running durations
   setInterval(function () {
