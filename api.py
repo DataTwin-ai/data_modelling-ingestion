@@ -50,39 +50,45 @@ app.add_middleware(
 # =========================================================================
 
 class TableIngestRequest(BaseModel):
-    db: str = Field(..., description="Source database name (e.g. 'dm00005')", example="dm00005")
-    table_name: str = Field(..., description="Source table name to fetch and ingest", example="bsid_view")
-    tenant_id: Optional[str] = Field(None, description="Target Tenant ID (defaults to config: DM00005)", example="DM00005")
-    org_id: Optional[str] = Field(None, description="Organization ID (defaults to config: OM0000000002)", example="OM0000000002")
-    product_name: Optional[str] = Field(None, description="Product Name (defaults to 'DTFOWS')", example="DTFOWS")
-    user_id: Optional[str] = Field(None, description="User email/ID (defaults to config)", example="dilip@datatwin.ai")
-    transaction_id: Optional[str] = Field(None, description="Custom Transaction ID (auto-generated if omitted)", example="TR_TABLE_INGEST_001")
-    save_location: Optional[str] = Field(None, description="Output export folder (defaults to 'exports')", example="exports")
+    db: str = Field(..., description="Source database name (e.g. 'dm00005')", examples=["dm00005"])
+    table_name: str = Field(..., description="Source table name to fetch and ingest", examples=["bsid_view"])
+    tenant_id: Optional[str] = Field(None, description="Target Tenant ID (defaults to config: DM00005)", examples=["DM00005"])
+    org_id: Optional[str] = Field(None, description="Organization ID (defaults to config: OM0000000002)", examples=["OM0000000002"])
+    product_name: Optional[str] = Field(None, description="Product Name (defaults to 'DTFOWS')", examples=["DTFOWS"])
+    user_id: Optional[str] = Field(None, description="User email/ID (defaults to config)", examples=["dilip@datatwin.ai"])
+    transaction_id: Optional[str] = Field(None, description="Custom Transaction ID (auto-generated if omitted)", examples=["TR_TABLE_INGEST_001"])
+    save_location: Optional[str] = Field(None, description="Output export folder (defaults to 'exports')", examples=["exports"])
 
 class FileIngestRequest(BaseModel):
-    file_path: str = Field(..., description="Absolute local path or S3 key to the workbook (.xlsx, .csv)", example="C:\\VR3 PROJECT\\injection\\Audited_Books_GSTR-9_CUSAT_FY2022-23 copy.xlsx")
-    tenant_id: Optional[str] = Field(None, description="Target Tenant ID (defaults to config: DM00005)", example="DM00005")
-    org_id: Optional[str] = Field(None, description="Organization ID (defaults to config: OM0000000002)", example="OM0000000002")
-    product_name: Optional[str] = Field(None, description="Product Name (defaults to 'DTFOWS')", example="DTFOWS")
-    user_id: Optional[str] = Field(None, description="User email/ID (defaults to config)", example="dilip@datatwin.ai")
-    transaction_id: Optional[str] = Field(None, description="Custom Transaction ID (auto-generated if omitted)", example="TR_FILE_INGEST_001")
-    save_location: Optional[str] = Field(None, description="Output export folder (defaults to 'exports')", example="exports")
+    file_path: str = Field(..., description="Absolute local path or S3 key to the workbook (.xlsx, .csv)", examples=["C:\\VR3 PROJECT\\injection\\Audited_Books_GSTR-9_CUSAT_FY2022-23 copy.xlsx"])
+    tenant_id: Optional[str] = Field(None, description="Target Tenant ID (defaults to config: DM00005)", examples=["DM00005"])
+    org_id: Optional[str] = Field(None, description="Organization ID (defaults to config: OM0000000002)", examples=["OM0000000002"])
+    product_name: Optional[str] = Field(None, description="Product Name (defaults to 'DTFOWS')", examples=["DTFOWS"])
+    user_id: Optional[str] = Field(None, description="User email/ID (defaults to config)", examples=["dilip@datatwin.ai"])
+    transaction_id: Optional[str] = Field(None, description="Custom Transaction ID (auto-generated if omitted)", examples=["TR_FILE_INGEST_001"])
+    save_location: Optional[str] = Field(None, description="Output export folder (defaults to 'exports')", examples=["exports"])
 
 class UnifiedIngestRequest(BaseModel):
-    source_type: str = Field(..., description="Source type: 'table' or 'file'", example="table")
-    db: Optional[str] = Field(None, description="Source database name (required if source_type='table')", example="dm00005")
-    table_name: Optional[str] = Field(None, description="Source table name (required if source_type='table')", example="bsid_view")
-    file_path: Optional[str] = Field(None, description="File path or S3 key (required if source_type='file')", example="C:\\VR3 PROJECT\\injection\\BSID_VIEW.xlsx")
-    tenant_id: Optional[str] = Field(None, description="Target Tenant ID", example="DM00005")
-    org_id: Optional[str] = Field(None, description="Organization ID", example="OM0000000002")
-    product_name: Optional[str] = Field(None, description="Product Name", example="DTFOWS")
-    user_id: Optional[str] = Field(None, description="User email/ID", example="dilip@datatwin.ai")
-    transaction_id: Optional[str] = Field(None, description="Transaction ID", example="TR_UNIFIED_001")
-    save_location: Optional[str] = Field(None, description="Output export folder", example="exports")
+    source_type: str = Field(..., description="Source type: 'table' or 'file'", examples=["table"])
+    db: Optional[str] = Field(None, description="Source database name (required if source_type='table')", examples=["dm00005"])
+    table_name: Optional[str] = Field(None, description="Source table name (required if source_type='table')", examples=["bsid_view"])
+    file_path: Optional[str] = Field(None, description="File path or S3 key (required if source_type='file')", examples=["C:\\VR3 PROJECT\\injection\\BSID_VIEW.xlsx"])
+    tenant_id: Optional[str] = Field(None, description="Target Tenant ID", examples=["DM00005"])
+    org_id: Optional[str] = Field(None, description="Organization ID", examples=["OM0000000002"])
+    product_name: Optional[str] = Field(None, description="Product Name", examples=["DTFOWS"])
+    user_id: Optional[str] = Field(None, description="User email/ID", examples=["dilip@datatwin.ai"])
+    transaction_id: Optional[str] = Field(None, description="Transaction ID", examples=["TR_UNIFIED_001"])
+    save_location: Optional[str] = Field(None, description="Output export folder", examples=["exports"])
 
 class TableInfo(BaseModel):
     table_name: str
     row_count: int
+
+class DashboardTableIngestRequest(BaseModel):
+    tenant_id: str = Field(..., description="Target Tenant ID", examples=["DM00005"])
+    org_id: str = Field(..., description="Organization ID", examples=["OM0000000002"])
+    table_name: str = Field(..., description="Source table name", examples=["bsid_view"])
+    db: Optional[str] = Field(None, description="Database name (defaults to tenant_id lowercase)")
 
 # =========================================================================
 # API Endpoints
@@ -411,6 +417,53 @@ async def upload_and_ingest(
     return {
         "success": True,
         "message": f"File '{file_name}' accepted. Ingestion queued.",
+        "job_id": job_id,
+        "transaction_id": job_id,
+        "status": "queued",
+        "job_url": f"/api/jobs/{job_id}",
+        "stream_url": f"/api/jobs/{job_id}/stream",
+    }
+
+
+@app.post("/api/ingest/table-job", status_code=status.HTTP_202_ACCEPTED, tags=["Dashboard"], dependencies=_DASHBOARD_AUTH)
+async def table_and_ingest_job(req: DashboardTableIngestRequest):
+    """
+    **Ingest a database table in the background for the dashboard**:
+    1. Validates tenant, org, and table_name.
+    2. Registers a job in job_manager so progress and logs appear on the dashboard.
+    3. Queues ingestion in the background and returns job_id.
+    """
+    tenant_id = (req.tenant_id or "").strip()
+    org_id = (req.org_id or "").strip()
+    table_name = (req.table_name or "").strip()
+    db = (req.db or tenant_id.lower()).strip()
+    if not _ID_RE.match(tenant_id):
+        raise HTTPException(status_code=400, detail="Invalid tenant_id. Use letters, digits, '_' or '-' (max 64).")
+    if not _ID_RE.match(org_id):
+        raise HTTPException(status_code=400, detail="Invalid org_id. Use letters, digits, '_' or '-' (max 64).")
+    if not table_name:
+        raise HTTPException(status_code=400, detail="table_name is required.")
+
+    job_id = _new_transaction_id()
+    pseudo_name = f"Table: {table_name}"
+    pseudo_path = f"table://{db}/{table_name}"
+    try:
+        job_manager.create_job(job_id, tenant_id, org_id, pseudo_name, pseudo_path, 0)
+    except job_manager.JobConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    clog(f"API Request: Table ingest job '{db}.{table_name}' tenant={tenant_id} org={org_id} job={job_id}", "INFO")
+    job_manager.submit(job_id, lambda: Job_Handler(
+        source_type="table",
+        source_db=db,
+        source_table=table_name,
+        tenant_id=tenant_id,
+        org_id=org_id,
+        transaction_id=job_id,
+    ))
+    return {
+        "success": True,
+        "message": f"Table '{table_name}' accepted. Ingestion queued.",
         "job_id": job_id,
         "transaction_id": job_id,
         "status": "queued",
