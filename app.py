@@ -341,8 +341,68 @@ def fill_fs_link_refs(res):
         if new:
             res.at[i, sec_col] = new
 
-    clog(f"FS link refs: linked {len(linked)}/{len(res)} row(s) from {os.path.basename(FS_LINKREF_FILE)}; "
-         f"section filled on {sum(1 for i in idxs if _txt(res.at[i, sec_col]))}", "SUCCESS" if linked else "WARNING")
+    # 3. rows the mapping does not cover (headings, check lines, footers, note narrative) get a derived
+    #    link ref so every FS row carries one, unique within the sheet and stable across re-imports:
+    #    heading -> common prefix of the link refs below it (e.g. BS_funds_and_liabilities_funds);
+    #    others  -> statement / note prefix + first words of the description.
+    taken = {e["internal_link_ref"] for e in entries} | {_txt(res.at[i, link_col]) for i in idxs if _txt(res.at[i, link_col])}
+
+    def _slug(text, words=6):
+        toks = re.findall(r"[a-z0-9]+", _fs_norm(text))
+        while toks and re.fullmatch(r"[ivx]+|\d+|[a-z]", toks[0]):   # drop leading enumerators: "xvi.", "(1)", "(a)"
+            toks = toks[1:]
+        return "_".join(toks[:words])
+
+    def _note_prefix(tc):
+        for j in idxs:
+            if j in linked and tc_col and _txt(res.at[j, tc_col]).upper() == tc:
+                m = re.match(r"(NOTES_note[0-9A-Za-z]+)_", _txt(res.at[j, link_col]))
+                if m:
+                    return m.group(1)
+        return f"NOTES_note{tc.lower()}" if tc else "NOTES"
+
+    derived = 0
+    for i in idxs:
+        st = stmt[i]
+        if st not in _FS_STATEMENTS or _txt(res.at[i, link_col]):
+            continue
+        desc, sec = _txt(res.at[i, desc_col]), _txt(res.at[i, sec_col])
+        tc = _txt(res.at[i, tc_col]).upper() if tc_col else ""
+        base = "BS" if st == "Balance Sheet" else "PL" if st == "Profit and Loss" else _note_prefix(tc)
+        link, nd = "", _fs_norm(desc)
+        last = _fs_norm(sec.split(" > ")[-1]) if sec else ""
+        if nd and last and (last == nd or last.startswith(nd[:40])):          # a heading row
+            kids = [_txt(res.at[j, link_col]).split("_") for j in idxs if j in linked
+                    and (_txt(res.at[j, sec_col]) == sec or _txt(res.at[j, sec_col]).startswith(sec + " > "))]
+            if kids:
+                common = []
+                for parts in zip(*kids):
+                    if len(set(parts)) != 1:
+                        break
+                    common.append(parts[0])
+                if any(len(k) == len(common) for k in kids):                  # never reuse a child's own link
+                    common = common[:-1]
+                # end the prefix at the heading's own last word (drop words that only the children share)
+                stem = lambda t: t.lower().rstrip("s")
+                head_words = {stem(t) for t in _slug(desc, 50).split("_") if t}
+                hits = [k for k in range(len(base.split("_")), len(common)) if stem(common[k]) in head_words]
+                if hits:
+                    common = common[:hits[-1] + 1]
+                if len(common) > len(base.split("_")):
+                    link = "_".join(common)
+        if not link:
+            slug = _slug(desc)
+            link = f"{base}_{slug}" if slug else base
+        cand, n = link, 2
+        while cand in taken:
+            cand, n = f"{link}_{n}", n + 1
+        taken.add(cand)
+        res.at[i, link_col] = cand
+        derived += 1
+
+    clog(f"FS link refs: {len(linked)}/{len(res)} row(s) from {os.path.basename(FS_LINKREF_FILE)}, "
+         f"{derived} derived; section filled on {sum(1 for i in idxs if _txt(res.at[i, sec_col]))}",
+         "SUCCESS" if linked else "WARNING")
     return res
 
 # Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
