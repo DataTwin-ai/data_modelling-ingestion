@@ -3781,7 +3781,8 @@ def assign_context_ids(conn, table_name, res, org_id, prefix=CONTEXT_ID_PREFIX):
     (documentid + financialyear + bukrs, whichever of them the data has).
     Same format and counter as sap-extraction-api - <prefix><org last 2><FY YYyy><7-digit seq>
     in masterobjectsequencingv2 - so IDs from both services never collide.
-    IDs already stored in <table_name> for the same document are reused.
+    IDs already stored for the same document in <table_name> or its header / item sibling
+    (active_bt3h <-> active_bt3i) are reused.
     """
     cols = {str(c).lower(): c for c in res.columns}
     if "documentid" not in cols or res.empty:
@@ -3800,31 +3801,42 @@ def assign_context_ids(conn, table_name, res, org_id, prefix=CONTEXT_ID_PREFIX):
     if not wanted:
         return res
 
-    # 1. Reuse IDs already stored for these documents
-    existing, lookup = {}, ["documentid"]
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = current_schema() AND table_name = %s", (table_name,))
-            tcols = {r[0] for r in cur.fetchall()}
-            if "grouptransactionref" in tcols and "documentid" in tcols:
-                lookup = [k for k in key_names if k in tcols]
-                cur.execute(
-                    f"SELECT {', '.join(lookup)}, grouptransactionref FROM {table_name} "
-                    f"WHERE orgid = %s AND documentid = ANY(%s) AND grouptransactionref LIKE %s",
-                    (org_id, sorted({k[0] for k in wanted}), prefix + "%"),
-                )
-                for row in cur.fetchall():
-                    existing.setdefault(tuple(_clean(v) for v in row[:-1]), row[-1])
-        conn.commit()
-    except Exception as e_ctx:
-        conn.rollback()
-        clog(f"Notice: context id lookup in {table_name}: {e_ctx}", "WARNING")
+    # 1. Reuse IDs already stored for these documents - in this table and in its header / item
+    #    sibling (active_bt3h <-> active_bt3i), so a document's header and its items share one ID
+    #    (e.g. SAP VBRK -> active_bt3h and VBRP -> active_bt3i, both keyed by the billing document).
+    lookup_tables = [table_name]
+    if table_name[-1:] in ("h", "i"):
+        lookup_tables.append(table_name[:-1] + ("i" if table_name.endswith("h") else "h"))
+    existing = {}   # {(lookup column names): {key values: id}}
+    for tbl in lookup_tables:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = current_schema() AND table_name = %s", (tbl,))
+                tcols = {r[0] for r in cur.fetchall()}
+                if {"grouptransactionref", "documentid", "orgid"} <= tcols:
+                    lookup = tuple(k for k in key_names if k in tcols)
+                    cur.execute(
+                        f"SELECT {', '.join(lookup)}, grouptransactionref FROM {tbl} "
+                        f"WHERE orgid = %s AND documentid = ANY(%s) AND grouptransactionref LIKE %s",
+                        (org_id, sorted({k[0] for k in wanted}), prefix + "%"),
+                    )
+                    found = existing.setdefault(lookup, {})
+                    for row in cur.fetchall():
+                        found.setdefault(tuple(_clean(v) for v in row[:-1]), row[-1])
+            conn.commit()
+        except Exception as e_ctx:
+            conn.rollback()
+            clog(f"Notice: context id lookup in {tbl}: {e_ctx}", "WARNING")
 
-    def _sub(key):
-        return tuple(key[key_names.index(n)] for n in lookup)
+    def _existing_id(key):
+        for lookup, found in existing.items():
+            hit = found.get(tuple(key[key_names.index(n)] for n in lookup))
+            if hit:
+                return hit
+        return None
 
-    new_docs = [k for k in wanted if _sub(k) not in existing]
+    new_docs = [k for k in wanted if not _existing_id(k)]
 
     # 2. Reserve the missing IDs in one round-trip
     new_ids = {}
@@ -3850,7 +3862,7 @@ def assign_context_ids(conn, table_name, res, org_id, prefix=CONTEXT_ID_PREFIX):
 
     for i, k, cur_v in zip(res.index, keys, current):
         if k[0] and not cur_v:
-            res.at[i, gtr_col] = existing.get(_sub(k)) or new_ids.get(k)
+            res.at[i, gtr_col] = _existing_id(k) or new_ids.get(k)
     clog(f"Context IDs ({prefix}) for {table_name}: {len(wanted) - len(new_docs)} reused, {len(new_docs)} new", "INFO")
     return res
 
@@ -3910,7 +3922,17 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
     res["createddatetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     res["createdby"] = userid
     res["modifiedby"] = userid
-    res['sno'] = [str(i + 1) for i in range(len(res))]
+    # sno is part of the row key (processcode, themename, transactiontype, orgid, documentnumber, sno).
+    # Caller-routed data (SAP) maps it from a stable per-row value (passportid, item POSNR, constant 1
+    # for a header) so a changed source row updates its stored row; the position in the batch would not.
+    sno_cols = [c for c in res.columns if str(c).lower() == 'sno']
+    sno_src = res[sno_cols[0]] if (assign_context and len(sno_cols) == 1) else None
+    if sno_src is not None and not (sno_src.isna() | (sno_src.astype(str).str.strip() == '')).any():
+        res = res.drop(columns=sno_cols)
+        res['sno'] = sno_src.astype(str).str.strip().values
+    else:
+        res = res.drop(columns=[c for c in sno_cols if c != 'sno'])
+        res['sno'] = [str(i + 1) for i in range(len(res))]
 
     # Attach workbook metadata (GSTIN, Legal_Name, Financial_Year, etc.)
     meta = {}
