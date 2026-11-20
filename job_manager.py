@@ -300,18 +300,38 @@ def set_stage(stage, sheet_index=None, total_sheets=None, detail=None):
 # -------------------------------------------------------------------------
 # Job lifecycle
 # -------------------------------------------------------------------------
-def create_job(job_id, tenant_id, org_id, file_name, file_path, file_size):
-    """Register a queued job. Raises JobConflictError if the same file is already in flight."""
-    norm = os.path.normcase(os.path.abspath(file_path))
+def _source_key(path):
+    """Identity of a job's source: table:// URIs as-is, file paths normalised."""
+    path = str(path or "")
+    if "://" in path:
+        return path.lower()
+    return os.path.normcase(os.path.abspath(path))
+
+
+def create_job(job_id, tenant_id, org_id, file_name, file_path, file_size, kind="upload"):
+    """
+    Register a queued job. Raises JobConflictError if the same source is already in flight
+    (or the job_id is already active).
+    kind: 'upload' (dashboard upload), 'file' (POST /api/ingest/file) or 'table' (POST /api/ingest/table).
+    """
+    norm = _source_key(file_path)
     with _lock:
+        existing = _jobs.get(job_id)
+        if existing is not None and existing.status in ACTIVE_STATUSES:
+            raise JobConflictError(f"Job '{job_id}' is already running.")
         for other in _jobs.values():
-            if other.status in ACTIVE_STATUSES and os.path.normcase(os.path.abspath(other.file_path)) == norm:
+            if other.status in ACTIVE_STATUSES and _source_key(other.file_path) == norm:
                 raise JobConflictError(
-                    f"File '{file_name}' is already being ingested for this tenant/org (job {other.job_id})."
+                    f"'{file_name}' is already being ingested for this tenant/org (job {other.job_id})."
                 )
         job = Job(job_id, tenant_id, org_id, file_name, file_path, file_size)
         _jobs[job_id] = job
-        job.add_log(f"Upload received: '{file_name}' ({file_size} bytes) for tenant={tenant_id}, org={org_id}", "INFO")
+        if kind == "table":
+            job.add_log(f"Table ingestion requested: '{file_path}' for tenant={tenant_id}, org={org_id}", "INFO")
+        elif kind == "file":
+            job.add_log(f"File ingestion requested: '{file_path}' for tenant={tenant_id}, org={org_id}", "INFO")
+        else:
+            job.add_log(f"Upload received: '{file_name}' ({file_size} bytes) for tenant={tenant_id}, org={org_id}", "INFO")
         job.add_log("Stage -> QUEUED", "STAGE")
         _publish(job)
         return job
@@ -320,6 +340,15 @@ def create_job(job_id, tenant_id, org_id, file_name, file_path, file_size):
 def submit(job_id, fn):
     """Run fn() (a zero-arg callable returning the Job_Handler result) in the pool."""
     _executor.submit(_run_job, job_id, fn)
+
+
+def run_inline(job_id, fn):
+    """
+    Run fn() as a tracked job in the calling thread (for synchronous API endpoints):
+    the dashboard shows its stages and log live, and the call returns the final summary.
+    """
+    _run_job(job_id, fn)
+    return job_summary(job_id)
 
 
 def _run_job(job_id, fn):

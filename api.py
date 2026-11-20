@@ -49,7 +49,14 @@ app.add_middleware(
 # Request & Response Schemas
 # =========================================================================
 
-class TableIngestRequest(BaseModel):
+class TargetOverride(BaseModel):
+    """Optional: skip AI classification when the caller already knows the target process."""
+    process_code: Optional[str] = Field(None, description="Target process code, e.g. 'BT3I' (skips AI classification; orgid is forced to org_id)", example="BT3I")
+    transaction_type: Optional[str] = Field(None, description="Transaction type to use with process_code, e.g. 'Invoice'", example="Invoice")
+    theme_name: Optional[str] = Field(None, description="Existing theme in theme_mapping to use (default: automatic)", example=None)
+    wait: bool = Field(True, description="true = respond when ingestion finished; false = queue it and return job_id immediately")
+
+class TableIngestRequest(TargetOverride):
     db: str = Field(..., description="Source database name (e.g. 'dm00005')", example="dm00005")
     table_name: str = Field(..., description="Source table name to fetch and ingest", example="bsid_view")
     tenant_id: Optional[str] = Field(None, description="Target Tenant ID (defaults to config: DM00005)", example="DM00005")
@@ -59,7 +66,7 @@ class TableIngestRequest(BaseModel):
     transaction_id: Optional[str] = Field(None, description="Custom Transaction ID (auto-generated if omitted)", example="TR_TABLE_INGEST_001")
     save_location: Optional[str] = Field(None, description="Output export folder (defaults to 'exports')", example="exports")
 
-class FileIngestRequest(BaseModel):
+class FileIngestRequest(TargetOverride):
     file_path: str = Field(..., description="Absolute local path or S3 key to the workbook (.xlsx, .csv)", example="C:\\VR3 PROJECT\\injection\\Audited_Books_GSTR-9_CUSAT_FY2022-23 copy.xlsx")
     tenant_id: Optional[str] = Field(None, description="Target Tenant ID (defaults to config: DM00005)", example="DM00005")
     org_id: Optional[str] = Field(None, description="Organization ID (defaults to config: OM0000000002)", example="OM0000000002")
@@ -68,7 +75,7 @@ class FileIngestRequest(BaseModel):
     transaction_id: Optional[str] = Field(None, description="Custom Transaction ID (auto-generated if omitted)", example="TR_FILE_INGEST_001")
     save_location: Optional[str] = Field(None, description="Output export folder (defaults to 'exports')", example="exports")
 
-class UnifiedIngestRequest(BaseModel):
+class UnifiedIngestRequest(TargetOverride):
     source_type: str = Field(..., description="Source type: 'table' or 'file'", example="table")
     db: Optional[str] = Field(None, description="Source database name (required if source_type='table')", example="dm00005")
     table_name: Optional[str] = Field(None, description="Source table name (required if source_type='table')", example="bsid_view")
@@ -129,74 +136,101 @@ def list_database_tables(db: str = Query("dm00005", description="Database name t
             detail=f"Failed to fetch tables from database '{db}': {str(e)}"
         )
 
+def _tracked_ingest(kind: str, label: str, source_uri: str, req, handler_kwargs: Dict[str, Any], what: str):
+    """
+    Runs Job_Handler as a dashboard job (stages + live log in /dashboard and /api/jobs).
+    wait=True: same synchronous contract as before; wait=False: queued, returns job_id.
+    """
+    tenant = (req.tenant_id or config.get('defaults', 'tenant_id', fallback='') or "").strip()
+    org = (req.org_id or config.get('defaults', 'org_id', fallback='') or "").strip()
+    job_id = req.transaction_id if (req.transaction_id and _ID_RE.match(req.transaction_id)) \
+        else _new_transaction_id("TBL" if kind == "table" else "FILE")
+    try:
+        job_manager.create_job(job_id, tenant, org, label, source_uri, 0, kind=kind)
+    except job_manager.JobConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    def run():
+        return Job_Handler(
+            tenant_id=req.tenant_id,
+            org_id=req.org_id,
+            product_name=req.product_name,
+            user_id=req.user_id,
+            transaction_id=req.transaction_id,   # None keeps the config default, as before
+            save_location=req.save_location,
+            process_code=req.process_code,
+            transaction_type=req.transaction_type,
+            theme_name=req.theme_name,
+            **handler_kwargs,
+        )
+
+    clog(f"API Request: Ingest from {kind} '{label}' (job {job_id}, process_code={req.process_code or 'AI'})", "INFO")
+    if not req.wait:
+        job_manager.submit(job_id, run)
+        return {
+            "success": True,
+            "message": f"{what} accepted. Ingestion queued.",
+            "job_id": job_id,
+            "transaction_id": job_id,
+            "status": "queued",
+            "job_url": f"/api/jobs/{job_id}",
+            "stream_url": f"/api/jobs/{job_id}/stream",
+        }
+
+    summary = job_manager.run_inline(job_id, run) or {}
+    result = summary.get("result")
+    if result is None:
+        clog(f"API Error in {kind} ingestion: {summary.get('error')}", "ERROR")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{kind.capitalize()} ingestion failed: {summary.get('error')} (job {job_id})"
+        )
+    ok = summary.get("status") == "completed"
+    return {
+        "success": ok,
+        "message": f"Successfully ingested {what}" if ok else f"Ingestion of {what} finished with status: {result.get('status')}",
+        "job_id": job_id,
+        "status": summary.get("status"),
+        "data": result
+    }
+
+
 @app.post("/api/ingest/table", tags=["Ingestion"])
 def ingest_from_table(req: TableIngestRequest):
     """
     **Ingest data directly from a Database Table**:
     1. Fetches all records and columns from the specified `db` and `table_name`.
-    2. Uses AI to identify transaction type, process code, and theme.
+    2. Uses AI to identify transaction type, process code, and theme
+       (skipped when `process_code` is given, e.g. `BT3I` + `transaction_type: Invoice`).
     3. Builds process and theme mapping for ALL columns in the table.
     4. Computes deterministic row checksums.
     5. Performs idempotent conditional UPSERT into `active_{process_code}`.
     6. Automatically exports reverse-mapped Excel (.xlsx) and CSV to `save_location`.
+
+    Every call is a dashboard job (live stages + log at `/dashboard`, `/api/jobs/{job_id}`).
     """
-    try:
-        clog(f"API Request: Ingest from table '{req.db}.{req.table_name}'", "INFO")
-        result = Job_Handler(
-            source_type="table",
-            source_db=req.db,
-            source_table=req.table_name,
-            tenant_id=req.tenant_id,
-            org_id=req.org_id,
-            product_name=req.product_name,
-            user_id=req.user_id,
-            transaction_id=req.transaction_id,
-            save_location=req.save_location
-        )
-        return {
-            "success": True,
-            "message": f"Successfully ingested table '{req.table_name}' from database '{req.db}'",
-            "data": result
-        }
-    except Exception as e:
-        clog(f"API Error in ingest_from_table: {e}", "ERROR")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Table ingestion failed: {str(e)}"
-        )
+    return _tracked_ingest(
+        "table", f"{req.db}.{req.table_name}", f"table://{req.db}/{req.table_name}", req,
+        {"source_type": "table", "source_db": req.db, "source_table": req.table_name},
+        f"table '{req.table_name}' from database '{req.db}'",
+    )
 
 @app.post("/api/ingest/file", tags=["Ingestion"])
 def ingest_from_file(req: FileIngestRequest):
     """
     **Ingest data from an Excel/CSV File**:
     1. Reads all sheets from local file path or S3 key.
-    2. Runs AI classification, process cataloging, and theme mapping for each sheet.
+    2. Runs AI classification (or uses `process_code`), process cataloging, and theme mapping for each sheet.
     3. Performs idempotent conditional UPSERT into the target active table.
     4. Automatically exports reverse-mapped Excel (.xlsx) and CSV.
+
+    Every call is a dashboard job (live stages + log at `/dashboard`, `/api/jobs/{job_id}`).
     """
-    try:
-        clog(f"API Request: Ingest from file '{req.file_path}'", "INFO")
-        result = Job_Handler(
-            source_type="file",
-            data_key=req.file_path,
-            tenant_id=req.tenant_id,
-            org_id=req.org_id,
-            product_name=req.product_name,
-            user_id=req.user_id,
-            transaction_id=req.transaction_id,
-            save_location=req.save_location
-        )
-        return {
-            "success": True,
-            "message": f"Successfully ingested file '{req.file_path}'",
-            "data": result
-        }
-    except Exception as e:
-        clog(f"API Error in ingest_from_file: {e}", "ERROR")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"File ingestion failed: {str(e)}"
-        )
+    return _tracked_ingest(
+        "file", os.path.basename(str(req.file_path).replace("\\", "/")) or str(req.file_path), str(req.file_path), req,
+        {"source_type": "file", "data_key": req.file_path},
+        f"file '{req.file_path}'",
+    )
 
 @app.post("/api/ingest", tags=["Ingestion"])
 def unified_ingest(req: UnifiedIngestRequest):
@@ -219,7 +253,11 @@ def unified_ingest(req: UnifiedIngestRequest):
             product_name=req.product_name,
             user_id=req.user_id,
             transaction_id=req.transaction_id,
-            save_location=req.save_location
+            save_location=req.save_location,
+            process_code=req.process_code,
+            transaction_type=req.transaction_type,
+            theme_name=req.theme_name,
+            wait=req.wait
         ))
     elif src_type == "file":
         file_target = req.file_path or req.data_key
@@ -235,7 +273,11 @@ def unified_ingest(req: UnifiedIngestRequest):
             product_name=req.product_name,
             user_id=req.user_id,
             transaction_id=req.transaction_id,
-            save_location=req.save_location
+            save_location=req.save_location,
+            process_code=req.process_code,
+            transaction_type=req.transaction_type,
+            theme_name=req.theme_name,
+            wait=req.wait
         ))
     else:
         raise HTTPException(
@@ -327,8 +369,8 @@ def _safe_filename(name: str) -> str:
     return base[:150]
 
 
-def _new_transaction_id() -> str:
-    return f"TR_UPL_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6].upper()}"
+def _new_transaction_id(prefix: str = "UPL") -> str:
+    return f"TR_{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6].upper()}"
 
 
 @app.get("/dashboard", include_in_schema=False, dependencies=_DASHBOARD_AUTH)

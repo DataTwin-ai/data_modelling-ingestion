@@ -150,6 +150,12 @@ TABLE_NEW_COLUMNS = {
     for k, v in (config.items('table_new_columns') if config.has_section('table_new_columns') else [])
 }
 
+# Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
+# On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
+KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
+    c for cols in TABLE_NEW_COLUMNS.values() for c in cols
+}
+
 # GSTR-9 internal link refs: internal_link_ref -> section / nature_of_supplies, shipped with the code
 # (generated from GSTR9_internal_linkref_updated-v3.xlsx) and matched on tablecode + tablecodesub.
 GSTR9_LINKREF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mappings", "gstr9_internal_link_refs.json")
@@ -404,12 +410,6 @@ def fill_fs_link_refs(res):
          f"{derived} derived; section filled on {sum(1 for i in idxs if _txt(res.at[i, sec_col]))}",
          "SUCCESS" if linked else "WARNING")
     return res
-
-# Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
-# On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
-KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
-    c for cols in TABLE_NEW_COLUMNS.values() for c in cols
-}
 
 # -------------------------------------------------------------------------
 # Custom Logger (clog)
@@ -753,14 +753,25 @@ def ec2confic(tenantID):
         target_db = tenantID.lower()
     else:
         target_db = tenantID
-    conn = psycopg2.connect(
-        host = ec2IP,
-        port = port,
-        dbname = target_db,
-        user = db_user,
-        password = db_password,
-        connection_factory = TenantConnection
-    )
+    # A short network drop must not fail a whole ingestion job: 3 attempts, 15 s connect timeout
+    conn = None
+    for attempt, wait_s in enumerate((5, 10, None), start=1):
+        try:
+            conn = psycopg2.connect(
+                host = ec2IP,
+                port = port,
+                dbname = target_db,
+                user = db_user,
+                password = db_password,
+                connect_timeout = 15,
+                connection_factory = TenantConnection
+            )
+            break
+        except psycopg2.OperationalError as e_conn:
+            if wait_s is None:
+                raise
+            clog(f"DB connect to '{target_db}' failed (attempt {attempt}/3): {e_conn}; retrying in {wait_s}s", "WARNING")
+            time.sleep(wait_s)
     conn.tenant_id = None if tenantID == COMMON_DB_KEY else normalize_tenant_id(tenantID)
     with conn.cursor() as cur:
         cur.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(table_schema)))
@@ -907,6 +918,11 @@ def _coerce_extra_column_series(series):
                 return False
             return None
         return series.apply(_to_bool_val)
+
+    # Codes such as SAP assignment / customer numbers ('0000500001') are identifiers, not
+    # amounts: converting them to numbers drops the leading zeros, so keep them as text.
+    if any(re.fullmatch(r"0\d+", s) for s in non_empty):
+        return series.apply(lambda v: None if (v is None or pd.isna(v) or str(v).strip() == '') else str(v).strip())
 
     numeric_vals = []
     for s in non_empty:
@@ -4078,11 +4094,118 @@ def handle_existing_process_metadata(tenantID, bucket, DataKey, response1, proje
     
     return str(ai_outputs[0]["ThemeName"])
     
-def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName,commondb_conn, tenant_conn, tenant_cursor,userid,input_data=None,sheet_name=None):
-    
+CONTEXT_ID_PREFIX = "CTXSAP"
+
+
+def _indian_financial_year(now=None):
+    """Indian FY (Apr-Mar) as 'YYyy', e.g. Nov 2026 -> '2627' (same rule as sap-extraction-api)."""
+    now = now or datetime.now()
+    start = now.year if now.month >= 4 else now.year - 1
+    return f"{str(start)[-2:]}{str(start + 1)[-2:]}"
+
+
+def assign_context_ids(conn, table_name, res, org_id, prefix=CONTEXT_ID_PREFIX):
+    """
+    GroupTransactionRef (context ID) for caller-routed data: one ID per source document
+    (documentid + financialyear + bukrs, whichever of them the data has).
+    Same format and counter as sap-extraction-api - <prefix><org last 2><FY YYyy><7-digit seq>
+    in masterobjectsequencingv2 - so IDs from both services never collide.
+    IDs already stored in <table_name> for the same document are reused.
+    """
+    cols = {str(c).lower(): c for c in res.columns}
+    if "documentid" not in cols or res.empty:
+        return res
+    key_names = [k for k in ("documentid", "financialyear", "bukrs") if k in cols]
+    gtr_col = cols.get("grouptransactionref", "grouptransactionref")
+    if gtr_col not in res.columns:
+        res[gtr_col] = None
+
+    def _clean(v):
+        return "" if v is None or (not isinstance(v, str) and pd.isna(v)) else str(v).strip()
+
+    keys = [tuple(_clean(res.at[i, cols[k]]) for k in key_names) for i in res.index]
+    current = [_clean(res.at[i, gtr_col]) for i in res.index]
+    wanted = sorted({k for k, cur in zip(keys, current) if k[0] and not cur})
+    if not wanted:
+        return res
+
+    # 1. Reuse IDs already stored for these documents
+    existing, lookup = {}, ["documentid"]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() AND table_name = %s", (table_name,))
+            tcols = {r[0] for r in cur.fetchall()}
+            if "grouptransactionref" in tcols and "documentid" in tcols:
+                lookup = [k for k in key_names if k in tcols]
+                cur.execute(
+                    f"SELECT {', '.join(lookup)}, grouptransactionref FROM {table_name} "
+                    f"WHERE orgid = %s AND documentid = ANY(%s) AND grouptransactionref LIKE %s",
+                    (org_id, sorted({k[0] for k in wanted}), prefix + "%"),
+                )
+                for row in cur.fetchall():
+                    existing.setdefault(tuple(_clean(v) for v in row[:-1]), row[-1])
+        conn.commit()
+    except Exception as e_ctx:
+        conn.rollback()
+        clog(f"Notice: context id lookup in {table_name}: {e_ctx}", "WARNING")
+
+    def _sub(key):
+        return tuple(key[key_names.index(n)] for n in lookup)
+
+    new_docs = [k for k in wanted if _sub(k) not in existing]
+
+    # 2. Reserve the missing IDs in one round-trip
+    new_ids = {}
+    if new_docs:
+        org2 = org_id[-2:] if org_id and org_id != "NoLDE" else "01"
+        fy = _indian_financial_year()
+        sk = f"#OBJNAME#{prefix}{org2}{fy}"
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO masterobjectsequencingv2 (pk, sk, last_updated_id, last_updated_on)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (pk, sk) DO UPDATE SET
+                       last_updated_id = CAST(masterobjectsequencingv2.last_updated_id AS INTEGER) + %s,
+                       last_updated_on = EXCLUDED.last_updated_on
+                   RETURNING last_updated_id""",
+                ("MASTEROBJECTSEQUENCINGV2", sk, len(new_docs), int(time.time_ns()), len(new_docs)),
+            )
+            last_id = int(cur.fetchone()[0])
+        conn.commit()
+        first_id = last_id - len(new_docs) + 1
+        for n, k in enumerate(new_docs):
+            new_ids[k] = f"{prefix}{org2}{fy}{str(first_id + n).rjust(7, '0')}"
+
+    for i, k, cur_v in zip(res.index, keys, current):
+        if k[0] and not cur_v:
+            res.at[i, gtr_col] = existing.get(_sub(k)) or new_ids.get(k)
+    clog(f"Context IDs ({prefix}) for {table_name}: {len(wanted) - len(new_docs)} reused, {len(new_docs)} new", "INFO")
+    return res
+
+
+def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName,commondb_conn, tenant_conn, tenant_cursor,userid,input_data=None,sheet_name=None,force_org_id=False,force_transaction_type=False,assign_context=False):
+
     input_source = input_data.copy() if (input_data is not None and isinstance(input_data, pd.DataFrame)) else DataKey
-    res, lde_domains = SourceFieldNameToTargetFieldName(ProductName, TenantID, OrgID, ProcessCode, ThemeName, input_source, TransactionID, commondb_conn, tenant_conn, Stage='1') 
-    
+    res, lde_domains = SourceFieldNameToTargetFieldName(ProductName, TenantID, OrgID, ProcessCode, ThemeName, input_source, TransactionID, commondb_conn, tenant_conn, Stage='1')
+
+    if force_org_id and OrgID:
+        # Caller fixed the process: orgid is the DataTwin organisation, never a mapped source column
+        org_cols = [c for c in res.columns if str(c).lower() in ("orgid", "organizationid")]
+        for c in org_cols:
+            res[c] = OrgID
+        if not org_cols:
+            res["orgid"] = OrgID
+        clog(f"orgid forced to '{OrgID}' (process supplied by caller)", "INFO")
+    if force_transaction_type and TransactionType:
+        # Caller fixed the transaction type (e.g. 'Invoice'); a mapped column such as a SAP document type must not replace it
+        tt_cols = [c for c in res.columns if str(c).lower() == "transactiontype"]
+        for c in tt_cols:
+            res[c] = TransactionType
+        if not tt_cols:
+            res["transactiontype"] = TransactionType
+        clog(f"transactiontype forced to '{TransactionType}' (supplied by caller)", "INFO")
+
     table_name = 'active_'+ProcessCode.lower()
 
     # Ensure active_<processcode> table exists in tenant DB (auto-create if missing)
@@ -4421,6 +4544,10 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
         except Exception as e_ext:
             clog(f"Notice: extra column theme registration: {e_ext}", "WARNING")
 
+    # Caller-routed data (process_code supplied, e.g. SAP BSID -> BT3H): one context ID per document
+    if assign_context:
+        res = assign_context_ids(tenant_conn, table_name.lower(), res, OrgID)
+
     # Calculate deterministic row checksum across data columns
     res["checksum"] = compute_row_checksum(res, extra_exclude=auto_id_cols)
 
@@ -4721,9 +4848,19 @@ def Job_Handler(
     user_id=None,
     transaction_id=None,
     process=None,
-    save_location=None
+    save_location=None,
+    process_code=None,
+    transaction_type=None,
+    theme_name=None
 ):
+    """
+    process_code / transaction_type / theme_name (optional): set by callers that already know
+    the target, e.g. SAP BSID -> process_code='BT3I', transaction_type='Invoice'. AI classification
+    is then skipped, and the orgid column is forced to org_id (the AI tends to map a company-code
+    column to OrgID).
+    """
     global DataKey, TenantID, OrgID, ProductName, UserID, TransactionID, Process
+    forced_proc = str(process_code).strip().upper() if process_code and str(process_code).strip() else None
     
     # Resolve parameters with global / config fallbacks
     effective_source_type = str(source_type or config.get('defaults', 'source_type', fallback='file')).strip().lower()
@@ -4792,14 +4929,18 @@ def Job_Handler(
             
             # 2. Identifying Transaction type using AI for this sheet/table
             set_stage("AI_CLASSIFICATION", sheet_index=sheet_idx, total_sheets=total_sheets, detail=sheet_name)
-            response1 = transaction_identifier(bucket, effective_data_key, project_id, location, model_name, commondb_conn, input_data=sheet_df)
-            clog(f"Sheet/Table '{sheet_name}' AI Response: {response1}", "INFO")
-            
+            if forced_proc:
+                response1 = {"TransactionType": str(transaction_type or forced_proc).strip(), "ProcessCode": forced_proc}
+                clog(f"📌 ProcessCode '{forced_proc}' / TransactionType '{response1['TransactionType']}' supplied by caller - AI classification skipped", "INFO")
+            else:
+                response1 = transaction_identifier(bucket, effective_data_key, project_id, location, model_name, commondb_conn, input_data=sheet_df)
+                clog(f"Sheet/Table '{sheet_name}' AI Response: {response1}", "INFO")
+
             current_tx_type = response1["TransactionType"]
             sheet_proc_code = response1["ProcessCode"]
 
             # Route Financial Statements / Profit & Loss / Balance Sheet to unified 'FS' process code (table: active_fs)
-            is_fs = (
+            is_fs = not forced_proc and (
                 sheet_proc_code in ["FS", "IS"]
                 or any(
                     kw in str(x).lower()
@@ -4812,7 +4953,7 @@ def Job_Handler(
                 )
             )
             # Route all GSTR filings to unified 'TAXSYS' process code (table: active_taxsys)
-            is_gstr = not is_fs and any(
+            is_gstr = not forced_proc and not is_fs and any(
                 "gstr" in str(x).lower()
                 for x in [effective_data_key, sheet_name, current_tx_type, sheet_proc_code]
             )
@@ -4856,10 +4997,10 @@ def Job_Handler(
                 else:
                     clog(f"ProcessCode '{sheet_proc_code}' has no schema in 'process' table. Routing to handle_new_process_metadata to generate schema...", "WARNING")
                 proc_code, theme_nm = handle_new_process_metadata(
-                    effective_tenant_id, bucket, effective_data_key, response1, project_id, location, 
-                    model_name, commondb_conn, commondb_cursor, tenant_conn, tenant_cursor, 
+                    effective_tenant_id, bucket, effective_data_key, response1, project_id, location,
+                    model_name, commondb_conn, commondb_cursor, tenant_conn, tenant_cursor,
                     input_data=sheet_df,
-                    target_process_code="TAXSYS" if is_gstr else None
+                    target_process_code="TAXSYS" if is_gstr else forced_proc
                 )
                 update_transaction_log(tenant_conn, effective_org_id, effective_transaction_id, attributes={"ProcessCode": proc_code, "ThemeName": theme_nm})
             else:
@@ -4910,12 +5051,36 @@ def Job_Handler(
                 except Exception:
                     tenant_conn.rollback()
 
-                is_gstr9 = not is_fs and any(
+                is_gstr9 = not forced_proc and not is_fs and any(
                     g9 in str(x).lower()
                     for x in [effective_data_key, sheet_name, current_tx_type]
                     for g9 in ["gstr9", "gstr-9", "gstr_9"]
                 )
-                if is_gstr9:
+                caller_theme = None
+                if theme_name and str(theme_name).strip():
+                    theme_found = False
+                    try:
+                        with tenant_conn.cursor() as cur_ct:
+                            cur_ct.execute(
+                                f"SELECT 1 FROM theme_mapping WHERE {tenant_filter(effective_tenant_id)}productcode = %s AND processcode = %s AND themename = %s LIMIT 1",
+                                (effective_product_name, sheet_proc_code, str(theme_name).strip())
+                            )
+                            theme_found = cur_ct.fetchone() is not None
+                    except Exception:
+                        tenant_conn.rollback()
+                        raise
+                    if not theme_found:
+                        # A caller that pins a theme relies on its exact mapping: never let the AI
+                        # invent a different one (the job fails, the caller's rows stay queued)
+                        raise ValueError(
+                            f"Theme '{theme_name}' not found in theme_mapping for product "
+                            f"'{effective_product_name}' / process '{sheet_proc_code}'"
+                        )
+                    caller_theme = str(theme_name).strip()
+                if caller_theme:
+                    clog(f"📌 Theme '{caller_theme}' supplied by caller for '{sheet_name}'", "INFO")
+                    theme_nm = caller_theme
+                elif is_gstr9:
                     clog(f"📌 Dedicated GSTR-9 theme 'TAXSYS_GSTR9' selected for '{sheet_name}'", "INFO")
                     theme_nm = "TAXSYS_GSTR9"
                 elif existing_theme_for_sheet:
@@ -4934,9 +5099,12 @@ def Job_Handler(
             # 4. Updating the response in the database for this sheet/table
             set_stage("UPSERT", sheet_index=sheet_idx, total_sheets=total_sheets, detail=f"{sheet_name} -> active_{str(proc_code).lower()}")
             sheet_resp = updating_response_in_db(
-                effective_product_name, effective_tenant_id, effective_org_id, effective_data_key, current_tx_type, 
-                current_txn_id, proc_code, theme_nm, commondb_conn, tenant_conn, tenant_cursor, 
-                effective_user_id, input_data=sheet_df, sheet_name=sheet_name
+                effective_product_name, effective_tenant_id, effective_org_id, effective_data_key, current_tx_type,
+                current_txn_id, proc_code, theme_nm, commondb_conn, tenant_conn, tenant_cursor,
+                effective_user_id, input_data=sheet_df, sheet_name=sheet_name,
+                force_org_id=bool(forced_proc),
+                force_transaction_type=bool(forced_proc and transaction_type),
+                assign_context=bool(forced_proc)
             )
             clog(f"Sheet/Table '{sheet_name}' Ingestion Result: {sheet_resp}", "SUCCESS")
             overall_results[sheet_name] = sheet_resp
@@ -4978,6 +5146,7 @@ def Job_Handler(
             "source_name": effective_source_table if effective_source_type == "table" else effective_data_key,
             "source_db": effective_source_db if effective_source_type == "table" else None,
             "target_process_code": target_proc,
+            "process_code_source": "caller" if forced_proc else "ai",
             "target_table": f"active_{target_proc.lower()}",
             "total_sheets": total_sheets,
             "sheets": list(sheets_dict.keys()),
