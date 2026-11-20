@@ -510,10 +510,11 @@ def _rows_already_stored(conn, table_name, df, tenant_id):
 
 
 def _drop_fs_duplicate_lines(conn, table_name, df, tenant_id, transaction_id):
-    """Audited books (FS): one copy of each statement line per org and financial year.
-    Incoming rows whose (orgid, financial_year, internal_link_ref) is already stored under another
-    key - the same book uploaded again as another file, or with a new theme - are duplicates and are
-    dropped. Same key (same file re-uploaded) -> normal upsert. Rows of the current upload never count.
+    """Audited books (FS): one copy of each statement line per org, GSTIN and financial year.
+    Incoming rows whose (orgid, gstin, financial_year, internal_link_ref) is already stored under
+    another key - the same book uploaded again as another file, or with a new theme - are duplicates
+    and are dropped; another GSTIN is another entity's book and loads normally.
+    Same key (same file re-uploaded) -> normal upsert. Rows of the current upload never count.
     Returns (rows to load, number dropped, source file of the stored copy)."""
     cols = {str(c).lower(): c for c in df.columns}
     fy_name = "financial_year" if "financial_year" in cols else ("fiscalyear" if "fiscalyear" in cols else None)
@@ -524,6 +525,7 @@ def _drop_fs_duplicate_lines(conn, table_name, df, tenant_id, transaction_id):
         return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
 
     org_c, fy_c, link_c = cols["orgid"], cols[fy_name], cols["internal_link_ref"]
+    gst_c = cols.get("gstin")
     keyed = [i for i in df.index if _t(df.at[i, org_c]) and _t(df.at[i, fy_c]) and _t(df.at[i, link_c])]
     if not keyed:
         return df, 0, None
@@ -543,12 +545,13 @@ def _drop_fs_duplicate_lines(conn, table_name, df, tenant_id, transaction_id):
                 this_upload = " AND coalesce(transactionid, '') NOT LIKE %s"
                 params.append(batch.replace("_", r"\_") + "%")
             cur.execute(
-                f'SELECT orgid, "{fy_name}", internal_link_ref, input, {sel} FROM "{table_name}" '
+                f'SELECT orgid, "{fy_name}", internal_link_ref, input, {"gstin" if gst_c else "NULL"}, {sel} '
+                f'FROM "{table_name}" '
                 f"WHERE {tenant_filter(tenant_id)}orgid = ANY(%s) AND internal_link_ref = ANY(%s){this_upload}",
                 params)
             stored = {}
             for r in cur.fetchall():
-                stored.setdefault((_t(r[0]), _t(r[1]), _t(r[2])), []).append((tuple(_t(v) for v in r[4:]), _t(r[3])))
+                stored.setdefault((_t(r[0]), _t(r[4]), _t(r[1]), _t(r[2])), []).append((tuple(_t(v) for v in r[5:]), _t(r[3])))
     except Exception as e:
         conn.rollback()
         clog(f"Notice: FS duplicate check skipped ({e})", "WARNING")
@@ -556,7 +559,8 @@ def _drop_fs_duplicate_lines(conn, table_name, df, tenant_id, transaction_id):
 
     drop, src = [], None
     for i in keyed:
-        hits = stored.get((_t(df.at[i, org_c]), _t(df.at[i, fy_c]), _t(df.at[i, link_c])))
+        gst = _t(df.at[i, gst_c]) if gst_c else ""
+        hits = stored.get((_t(df.at[i, org_c]), gst, _t(df.at[i, fy_c]), _t(df.at[i, link_c])))
         if hits and tuple(_t(df.at[i, cols[c]]) for c in pk) not in {h[0] for h in hits}:
             drop.append(i)
             src = src or hits[0][1]
@@ -4425,7 +4429,7 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
     if str(ProcessCode).strip().upper() == 'FS':
         res, n_dup, dup_src = _drop_fs_duplicate_lines(tenant_conn, table_name.lower(), res, TenantID, TransactionID)
         if n_dup:
-            clog(f"⚠️ {n_dup} FS row(s) skipped: this org / financial year already has these statement lines "
+            clog(f"⚠️ {n_dup} FS row(s) skipped: this org / GSTIN / financial year already has these statement lines "
                  f"(loaded from '{os.path.basename(dup_src or '')}'). Delete those rows first to load a replacement.",
                  "WARNING")
         if res.empty:
