@@ -650,6 +650,19 @@ def _to_sql_col_name(name):
     return s[:63]
 
 
+def _readable_extra_col_name(sql_col):
+    """Readable names for header-derived columns that would otherwise start with 'col_'
+    (headers beginning with a digit), matching the names used in active_fs:
+        "31-03-2023" -> col_current -> amount_current      "31-03-2022" -> col_prior -> amount_prior
+        "1-2 years"  -> col_1_2_years -> between_1_2_years "6 months - 1 year" -> between_6_months_1_year"""
+    if sql_col in ("col_current", "col_prior", "col_opening", "col_closing"):
+        return "amount_" + sql_col[len("col_"):]
+    m = re.match(r"^col_(\d+_(?:\d+_)?(?:months?|years?)(?:_\d+_(?:months?|years?))?)$", sql_col or "")
+    if m:
+        return "between_" + m.group(1)
+    return sql_col
+
+
 _PERIOD_COL_RE = re.compile(r"^([a-z][a-z0-9_]*?)_(\d{1,2})_(\d{1,2})_(\d{2}|\d{4})$")
 
 
@@ -2562,6 +2575,7 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
 
             sql_col = _to_sql_col_name(orig_name)
             sql_col = period_renames.get(sql_col, sql_col)
+            sql_col = _readable_extra_col_name(sql_col)
             if not sql_col or sql_col in skip_extra_cols:
                 continue
 
