@@ -150,6 +150,12 @@ TABLE_NEW_COLUMNS = {
     for k, v in (config.items('table_new_columns') if config.has_section('table_new_columns') else [])
 }
 
+# Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
+# On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
+KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
+    c for cols in TABLE_NEW_COLUMNS.values() for c in cols
+}
+
 # GSTR-9 internal link refs: internal_link_ref -> section / nature_of_supplies, shipped with the code
 # (generated from GSTR9_internal_linkref_updated-v3.xlsx) and matched on tablecode + tablecodesub.
 GSTR9_LINKREF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mappings", "gstr9_internal_link_refs.json")
@@ -232,11 +238,178 @@ def fill_gstr9_link_refs(res):
          "SUCCESS" if filled else "WARNING")
     return res
 
-# Columns curated after ingestion (link refs, nature of supplies, sub-codes, spec columns).
-# On re-ingest an empty incoming value keeps what the table already holds instead of wiping it.
-KEEP_EXISTING_WHEN_EMPTY = {'internal_link_ref', 'nature_of_supplies', 'tablecodesub'} | {
-    c for cols in TABLE_NEW_COLUMNS.values() for c in cols
-}
+
+# FS (audited books) internal link refs: ordered entries {statementtype, internal_link_ref, section,
+# description} shipped with the code (generated from Audited_Book_internal_linkref_updated-v2.xlsx).
+FS_LINKREF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mappings", "fs_internal_link_refs.json")
+_FS_STATEMENTS = ("Balance Sheet", "Profit and Loss", "Notes to Accounts")
+
+
+def _fs_norm(v):
+    v = str(v or "").replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
+    return re.sub(r"\s+", " ", v).strip().lower()
+
+
+def _fs_note_no(section):
+    m = re.match(r"^(?:note\s+)?(\d+[a-z]?)\b", _fs_norm(section))
+    return m.group(1).upper() if m else None
+
+
+def _load_fs_link_refs():
+    try:
+        with open(FS_LINKREF_FILE, encoding="utf-8") as fh:
+            return json.load(fh).get("entries", [])
+    except Exception as e:
+        clog(f"Notice: FS link-ref mapping not loaded ({e})", "WARNING")
+        return []
+
+
+def fill_fs_link_refs(res):
+    """Fill internal_link_ref + section on FS rows (one sheet) from the shipped mapping.
+    Line items: statement type + note number (tablecode, Notes only) + account description,
+    each mapping entry used once, in order (repeated lines such as TOTAL).
+    Rows left without a link get a section only: headings -> the next linked row's path cut at
+    the matching segment, Balance Sheet / P&L footers -> the statement name, note narrative ->
+    the previous row's section."""
+    entries = _load_fs_link_refs()
+    if not entries or res is None or res.empty:
+        return res
+    cols = {str(c).lower(): c for c in res.columns}
+    desc_col, st_col = cols.get("accountdescription"), cols.get("statementtype")
+    if not desc_col or not st_col:
+        return res
+    tc_col = cols.get("tablecode")
+    for c in ("internal_link_ref", "section"):
+        if c not in cols:
+            res[c] = None
+            cols[c] = c
+    link_col, sec_col = cols["internal_link_ref"], cols["section"]
+
+    def _txt(v):
+        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+
+    idxs = list(res.index)
+    stmt = {i: _txt(res.at[i, st_col]) for i in idxs}
+    if not any(st in _FS_STATEMENTS for st in stmt.values()):
+        return res
+
+    # 1. line items -> link + section
+    used, linked = set(), set()
+    for i in idxs:
+        st = stmt[i]
+        if st not in _FS_STATEMENTS:
+            continue
+        nd = _fs_norm(res.at[i, desc_col])
+        if not nd:
+            continue
+        tc = _txt(res.at[i, tc_col]).upper() if tc_col else ""
+        if re.fullmatch(r"\d+\.0+", tc):          # note number read as a float ("10.0") -> "10"
+            tc = tc.split(".")[0]
+            res.at[i, tc_col] = tc
+        for k, e in enumerate(entries):
+            if k in used or e.get("statementtype") != st:
+                continue
+            if st == "Notes to Accounts" and _fs_note_no(e.get("section")) != tc:
+                continue
+            sec, md = e.get("section", ""), e.get("description", "")
+            if nd in (_fs_norm(md), _fs_norm(f"{sec.split(' > ')[-1]} - {md}"), _fs_norm(f"{sec} - {md}")):
+                used.add(k)
+                linked.add(i)
+                res.at[i, link_col] = e["internal_link_ref"]
+                if sec:
+                    res.at[i, sec_col] = sec
+                break
+
+    # 2. rows without a link -> section only (rows are visited in order, so later rows see filled values)
+    for pos, i in enumerate(idxs):
+        st = stmt[i]
+        if i in linked or st not in _FS_STATEMENTS:
+            continue
+        desc = _fs_norm(res.at[i, desc_col])
+        nxt = next((j for j in idxs[pos + 1:] if j in linked), None)
+        prev = next((j for j in reversed(idxs[:pos]) if _txt(res.at[j, sec_col])), None)
+        new = None
+        if nxt is not None:
+            segs = [x.strip() for x in _txt(res.at[nxt, sec_col]).split(" > ")]
+            hit = next((k for k, sg in enumerate(segs)
+                        if _fs_norm(sg) == desc or _fs_norm(sg).startswith(desc[:40])), None)
+            if hit is not None:
+                new = " > ".join(segs[:hit + 1])
+        if new is None and st in ("Balance Sheet", "Profit and Loss"):
+            if nxt is not None and prev is None:
+                new = _txt(res.at[nxt, sec_col]).split(" > ")[0]
+            elif nxt is not None:
+                new = _txt(res.at[nxt, sec_col])
+            else:
+                new = st
+        if new is None and prev is not None:
+            new = _txt(res.at[prev, sec_col])
+        if new:
+            res.at[i, sec_col] = new
+
+    # 3. rows the mapping does not cover (headings, check lines, footers, note narrative) get a derived
+    #    link ref so every FS row carries one, unique within the sheet and stable across re-imports:
+    #    heading -> common prefix of the link refs below it (e.g. BS_funds_and_liabilities_funds);
+    #    others  -> statement / note prefix + first words of the description.
+    taken = {e["internal_link_ref"] for e in entries} | {_txt(res.at[i, link_col]) for i in idxs if _txt(res.at[i, link_col])}
+
+    def _slug(text, words=6):
+        toks = re.findall(r"[a-z0-9]+", _fs_norm(text))
+        while toks and re.fullmatch(r"[ivx]+|\d+|[a-z]", toks[0]):   # drop leading enumerators: "xvi.", "(1)", "(a)"
+            toks = toks[1:]
+        return "_".join(toks[:words])
+
+    def _note_prefix(tc):
+        for j in idxs:
+            if j in linked and tc_col and _txt(res.at[j, tc_col]).upper() == tc:
+                m = re.match(r"(NOTES_note[0-9A-Za-z]+)_", _txt(res.at[j, link_col]))
+                if m:
+                    return m.group(1)
+        return f"NOTES_note{tc.lower()}" if tc else "NOTES"
+
+    derived = 0
+    for i in idxs:
+        st = stmt[i]
+        if st not in _FS_STATEMENTS or _txt(res.at[i, link_col]):
+            continue
+        desc, sec = _txt(res.at[i, desc_col]), _txt(res.at[i, sec_col])
+        tc = _txt(res.at[i, tc_col]).upper() if tc_col else ""
+        base = "BS" if st == "Balance Sheet" else "PL" if st == "Profit and Loss" else _note_prefix(tc)
+        link, nd = "", _fs_norm(desc)
+        last = _fs_norm(sec.split(" > ")[-1]) if sec else ""
+        if nd and last and (last == nd or last.startswith(nd[:40])):          # a heading row
+            kids = [_txt(res.at[j, link_col]).split("_") for j in idxs if j in linked
+                    and (_txt(res.at[j, sec_col]) == sec or _txt(res.at[j, sec_col]).startswith(sec + " > "))]
+            if kids:
+                common = []
+                for parts in zip(*kids):
+                    if len(set(parts)) != 1:
+                        break
+                    common.append(parts[0])
+                if any(len(k) == len(common) for k in kids):                  # never reuse a child's own link
+                    common = common[:-1]
+                # end the prefix at the heading's own last word (drop words that only the children share)
+                stem = lambda t: t.lower().rstrip("s")
+                head_words = {stem(t) for t in _slug(desc, 50).split("_") if t}
+                hits = [k for k in range(len(base.split("_")), len(common)) if stem(common[k]) in head_words]
+                if hits:
+                    common = common[:hits[-1] + 1]
+                if len(common) > len(base.split("_")):
+                    link = "_".join(common)
+        if not link:
+            slug = _slug(desc)
+            link = f"{base}_{slug}" if slug else base
+        cand, n = link, 2
+        while cand in taken:
+            cand, n = f"{link}_{n}", n + 1
+        taken.add(cand)
+        res.at[i, link_col] = cand
+        derived += 1
+
+    clog(f"FS link refs: {len(linked)}/{len(res)} row(s) from {os.path.basename(FS_LINKREF_FILE)}, "
+         f"{derived} derived; section filled on {sum(1 for i in idxs if _txt(res.at[i, sec_col]))}",
+         "SUCCESS" if linked else "WARNING")
+    return res
 
 # -------------------------------------------------------------------------
 # Custom Logger (clog)
@@ -268,7 +441,7 @@ clog.debug = lambda msg: clog(msg, "DEBUG")
 
 import hashlib
 
-def compute_row_checksum(df, exclude_cols=None):
+def compute_row_checksum(df, exclude_cols=None, extra_exclude=None):
     """
     Computes a deterministic MD5 checksum for each row based strictly on business/data columns.
     Excludes system, metadata, and audit columns to prevent false mismatches.
@@ -277,8 +450,11 @@ def compute_row_checksum(df, exclude_cols=None):
         exclude_cols = {
             'sno', 'themename', 'processcode', 'checksum', 'input', 'output', 
             'transactionid', 'inprdfrom', 'inprdto', 'createddatetime', 
-            'createdby', 'modifiedby', 'modifieddatetime'
+            'createdby', 'modifiedby', 'modifieddatetime',
+            # ids generated per upload are not row content: the same row must hash the same every time
+            'createdid', 'tenant_id'
         }
+    exclude_cols = set(exclude_cols) | {str(c).lower() for c in (extra_exclude or ())}
     data_cols = sorted([str(c).lower() for c in df.columns if str(c).lower() not in exclude_cols])
     
     col_map = {str(c).lower(): c for c in df.columns}
@@ -298,6 +474,97 @@ def compute_row_checksum(df, exclude_cols=None):
         return hashlib.md5(raw_str.encode('utf-8')).hexdigest()
 
     return df.apply(row_hash, axis=1)
+
+
+def _rows_already_stored(conn, table_name, df, tenant_id):
+    """True when every row of `df` is already in `table_name` with the same content checksum for the
+    same process / org (repeated rows counted): the sheet adds nothing new, e.g. the same file
+    uploaded again under another name, whose theme and keys therefore differ."""
+    if df is None or df.empty or "checksum" not in df.columns:
+        return False
+    cols = {str(c).lower(): c for c in df.columns}
+    where, params = [], []
+    for key in ("processcode", "orgid"):
+        if key in cols:
+            vals = df[cols[key]].dropna().astype(str).unique()
+            if len(vals) != 1:
+                return False
+            where.append(f"{key} = %s")
+            params.append(vals[0])
+    need = df["checksum"].astype(str).value_counts()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+                        "AND table_name = %s AND column_name = 'checksum'", (table_name,))
+            if not cur.fetchone():
+                return False
+            where.append("checksum = ANY(%s)")
+            params.append(list(need.index))
+            cur.execute(f'SELECT checksum, count(*) FROM "{table_name}" WHERE {tenant_filter(tenant_id)}'
+                        f'{" AND ".join(where)} GROUP BY checksum', params)
+            stored = dict(cur.fetchall())
+    except Exception:
+        conn.rollback()
+        return False
+    return all(stored.get(k, 0) >= n for k, n in need.items())
+
+
+def _drop_fs_duplicate_lines(conn, table_name, df, tenant_id, transaction_id):
+    """Audited books (FS): one copy of each statement line per org, GSTIN and financial year.
+    Incoming rows whose (orgid, gstin, financial_year, internal_link_ref) is already stored under
+    another key - the same book uploaded again as another file, or with a new theme - are duplicates
+    and are dropped; another GSTIN is another entity's book and loads normally.
+    Same key (same file re-uploaded) -> normal upsert. Rows of the current upload never count.
+    Returns (rows to load, number dropped, source file of the stored copy)."""
+    cols = {str(c).lower(): c for c in df.columns}
+    fy_name = "financial_year" if "financial_year" in cols else ("fiscalyear" if "fiscalyear" in cols else None)
+    if df is None or df.empty or not fy_name or "orgid" not in cols or "internal_link_ref" not in cols:
+        return df, 0, None
+
+    def _t(v):
+        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+
+    org_c, fy_c, link_c = cols["orgid"], cols[fy_name], cols["internal_link_ref"]
+    gst_c = cols.get("gstin")
+    keyed = [i for i in df.index if _t(df.at[i, org_c]) and _t(df.at[i, fy_c]) and _t(df.at[i, link_c])]
+    if not keyed:
+        return df, 0, None
+    batch = re.sub(r"_S\d+$", "", str(transaction_id or ""))
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT a.attname FROM pg_index i
+                           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                           WHERE i.indrelid = to_regclass(%s) AND i.indisprimary ORDER BY a.attname""", (table_name,))
+            pk = [r[0] for r in cur.fetchall() if r[0] in cols and r[0] != "tenant_id"]
+            if not pk:
+                return df, 0, None
+            sel = ", ".join(f'"{c}"' for c in pk)
+            params = [sorted({_t(df.at[i, org_c]) for i in keyed}), sorted({_t(df.at[i, link_c]) for i in keyed})]
+            this_upload = ""
+            if batch:   # rows written by earlier sheets of this same upload
+                this_upload = " AND coalesce(transactionid, '') NOT LIKE %s"
+                params.append(batch.replace("_", r"\_") + "%")
+            cur.execute(
+                f'SELECT orgid, "{fy_name}", internal_link_ref, input, {"gstin" if gst_c else "NULL"}, {sel} '
+                f'FROM "{table_name}" '
+                f"WHERE {tenant_filter(tenant_id)}orgid = ANY(%s) AND internal_link_ref = ANY(%s){this_upload}",
+                params)
+            stored = {}
+            for r in cur.fetchall():
+                stored.setdefault((_t(r[0]), _t(r[4]), _t(r[1]), _t(r[2])), []).append((tuple(_t(v) for v in r[5:]), _t(r[3])))
+    except Exception as e:
+        conn.rollback()
+        clog(f"Notice: FS duplicate check skipped ({e})", "WARNING")
+        return df, 0, None
+
+    drop, src = [], None
+    for i in keyed:
+        gst = _t(df.at[i, gst_c]) if gst_c else ""
+        hits = stored.get((_t(df.at[i, org_c]), gst, _t(df.at[i, fy_c]), _t(df.at[i, link_c])))
+        if hits and tuple(_t(df.at[i, cols[c]]) for c in pk) not in {h[0] for h in hits}:
+            drop.append(i)
+            src = src or hits[0][1]
+    return df.drop(index=drop), len(drop), src
 
 args = sys.argv
 def get_argument_value(arg_name, default=""):
@@ -486,14 +753,25 @@ def ec2confic(tenantID):
         target_db = tenantID.lower()
     else:
         target_db = tenantID
-    conn = psycopg2.connect(
-        host = ec2IP,
-        port = port,
-        dbname = target_db,
-        user = db_user,
-        password = db_password,
-        connection_factory = TenantConnection
-    )
+    # A short network drop must not fail a whole ingestion job: 3 attempts, 15 s connect timeout
+    conn = None
+    for attempt, wait_s in enumerate((5, 10, None), start=1):
+        try:
+            conn = psycopg2.connect(
+                host = ec2IP,
+                port = port,
+                dbname = target_db,
+                user = db_user,
+                password = db_password,
+                connect_timeout = 15,
+                connection_factory = TenantConnection
+            )
+            break
+        except psycopg2.OperationalError as e_conn:
+            if wait_s is None:
+                raise
+            clog(f"DB connect to '{target_db}' failed (attempt {attempt}/3): {e_conn}; retrying in {wait_s}s", "WARNING")
+            time.sleep(wait_s)
     conn.tenant_id = None if tenantID == COMMON_DB_KEY else normalize_tenant_id(tenantID)
     with conn.cursor() as cur:
         cur.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(table_schema)))
@@ -535,6 +813,19 @@ def _to_sql_col_name(name):
     if s[0].isdigit():
         s = f"col_{s}"
     return s[:63]
+
+
+def _readable_extra_col_name(sql_col):
+    """Readable names for header-derived columns that would otherwise start with 'col_'
+    (headers beginning with a digit), matching the names used in active_fs:
+        "31-03-2023" -> col_current -> amount_current      "31-03-2022" -> col_prior -> amount_prior
+        "1-2 years"  -> col_1_2_years -> between_1_2_years "6 months - 1 year" -> between_6_months_1_year"""
+    if sql_col in ("col_current", "col_prior", "col_opening", "col_closing"):
+        return "amount_" + sql_col[len("col_"):]
+    m = re.match(r"^col_(\d+_(?:\d+_)?(?:months?|years?)(?:_\d+_(?:months?|years?))?)$", sql_col or "")
+    if m:
+        return "between_" + m.group(1)
+    return sql_col
 
 
 _PERIOD_COL_RE = re.compile(r"^([a-z][a-z0-9_]*?)_(\d{1,2})_(\d{1,2})_(\d{2}|\d{4})$")
@@ -627,6 +918,11 @@ def _coerce_extra_column_series(series):
                 return False
             return None
         return series.apply(_to_bool_val)
+
+    # Codes such as SAP assignment / customer numbers ('0000500001') are identifiers, not
+    # amounts: converting them to numbers drops the leading zeros, so keep them as text.
+    if any(re.fullmatch(r"0\d+", s) for s in non_empty):
+        return series.apply(lambda v: None if (v is None or pd.isna(v) or str(v).strip() == '') else str(v).strip())
 
     numeric_vals = []
     for s in non_empty:
@@ -2449,6 +2745,7 @@ def SourceFieldNameToTargetFieldName(productCode, tenantID, OrgID, processCode, 
 
             sql_col = _to_sql_col_name(orig_name)
             sql_col = period_renames.get(sql_col, sql_col)
+            sql_col = _readable_extra_col_name(sql_col)
             if not sql_col or sql_col in skip_extra_cols:
                 continue
 
@@ -3797,11 +4094,130 @@ def handle_existing_process_metadata(tenantID, bucket, DataKey, response1, proje
     
     return str(ai_outputs[0]["ThemeName"])
     
-def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName,commondb_conn, tenant_conn, tenant_cursor,userid,input_data=None,sheet_name=None):
-    
+CONTEXT_ID_PREFIX = "CTXSAP"
+
+
+def _indian_financial_year(now=None):
+    """Indian FY (Apr-Mar) as 'YYyy', e.g. Nov 2026 -> '2627' (same rule as sap-extraction-api)."""
+    now = now or datetime.now()
+    start = now.year if now.month >= 4 else now.year - 1
+    return f"{str(start)[-2:]}{str(start + 1)[-2:]}"
+
+
+def assign_context_ids(conn, table_name, res, org_id, prefix=CONTEXT_ID_PREFIX):
+    """
+    GroupTransactionRef (context ID) for caller-routed data: one ID per source document
+    (documentid + financialyear + bukrs, whichever of them the data has).
+    Same format and counter as sap-extraction-api - <prefix><org last 2><FY YYyy><7-digit seq>
+    in masterobjectsequencingv2 - so IDs from both services never collide.
+    IDs already stored for the same document in <table_name> or its header / item sibling
+    (active_bt3h <-> active_bt3i) are reused.
+    """
+    cols = {str(c).lower(): c for c in res.columns}
+    if "documentid" not in cols or res.empty:
+        return res
+    key_names = [k for k in ("documentid", "financialyear", "bukrs") if k in cols]
+    gtr_col = cols.get("grouptransactionref", "grouptransactionref")
+    if gtr_col not in res.columns:
+        res[gtr_col] = None
+
+    def _clean(v):
+        return "" if v is None or (not isinstance(v, str) and pd.isna(v)) else str(v).strip()
+
+    keys = [tuple(_clean(res.at[i, cols[k]]) for k in key_names) for i in res.index]
+    current = [_clean(res.at[i, gtr_col]) for i in res.index]
+    wanted = sorted({k for k, cur in zip(keys, current) if k[0] and not cur})
+    if not wanted:
+        return res
+
+    # 1. Reuse IDs already stored for these documents - in this table and in its header / item
+    #    sibling (active_bt3h <-> active_bt3i), so a document's header and its items share one ID
+    #    (e.g. SAP VBRK -> active_bt3h and VBRP -> active_bt3i, both keyed by the billing document).
+    lookup_tables = [table_name]
+    if table_name[-1:] in ("h", "i"):
+        lookup_tables.append(table_name[:-1] + ("i" if table_name.endswith("h") else "h"))
+    existing = {}   # {(lookup column names): {key values: id}}
+    for tbl in lookup_tables:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = current_schema() AND table_name = %s", (tbl,))
+                tcols = {r[0] for r in cur.fetchall()}
+                if {"grouptransactionref", "documentid", "orgid"} <= tcols:
+                    lookup = tuple(k for k in key_names if k in tcols)
+                    cur.execute(
+                        f"SELECT {', '.join(lookup)}, grouptransactionref FROM {tbl} "
+                        f"WHERE orgid = %s AND documentid = ANY(%s) AND grouptransactionref LIKE %s",
+                        (org_id, sorted({k[0] for k in wanted}), prefix + "%"),
+                    )
+                    found = existing.setdefault(lookup, {})
+                    for row in cur.fetchall():
+                        found.setdefault(tuple(_clean(v) for v in row[:-1]), row[-1])
+            conn.commit()
+        except Exception as e_ctx:
+            conn.rollback()
+            clog(f"Notice: context id lookup in {tbl}: {e_ctx}", "WARNING")
+
+    def _existing_id(key):
+        for lookup, found in existing.items():
+            hit = found.get(tuple(key[key_names.index(n)] for n in lookup))
+            if hit:
+                return hit
+        return None
+
+    new_docs = [k for k in wanted if not _existing_id(k)]
+
+    # 2. Reserve the missing IDs in one round-trip
+    new_ids = {}
+    if new_docs:
+        org2 = org_id[-2:] if org_id and org_id != "NoLDE" else "01"
+        fy = _indian_financial_year()
+        sk = f"#OBJNAME#{prefix}{org2}{fy}"
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO masterobjectsequencingv2 (pk, sk, last_updated_id, last_updated_on)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (pk, sk) DO UPDATE SET
+                       last_updated_id = CAST(masterobjectsequencingv2.last_updated_id AS INTEGER) + %s,
+                       last_updated_on = EXCLUDED.last_updated_on
+                   RETURNING last_updated_id""",
+                ("MASTEROBJECTSEQUENCINGV2", sk, len(new_docs), int(time.time_ns()), len(new_docs)),
+            )
+            last_id = int(cur.fetchone()[0])
+        conn.commit()
+        first_id = last_id - len(new_docs) + 1
+        for n, k in enumerate(new_docs):
+            new_ids[k] = f"{prefix}{org2}{fy}{str(first_id + n).rjust(7, '0')}"
+
+    for i, k, cur_v in zip(res.index, keys, current):
+        if k[0] and not cur_v:
+            res.at[i, gtr_col] = _existing_id(k) or new_ids.get(k)
+    clog(f"Context IDs ({prefix}) for {table_name}: {len(wanted) - len(new_docs)} reused, {len(new_docs)} new", "INFO")
+    return res
+
+
+def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName,commondb_conn, tenant_conn, tenant_cursor,userid,input_data=None,sheet_name=None,force_org_id=False,force_transaction_type=False,assign_context=False):
+
     input_source = input_data.copy() if (input_data is not None and isinstance(input_data, pd.DataFrame)) else DataKey
-    res, lde_domains = SourceFieldNameToTargetFieldName(ProductName, TenantID, OrgID, ProcessCode, ThemeName, input_source, TransactionID, commondb_conn, tenant_conn, Stage='1') 
-    
+    res, lde_domains = SourceFieldNameToTargetFieldName(ProductName, TenantID, OrgID, ProcessCode, ThemeName, input_source, TransactionID, commondb_conn, tenant_conn, Stage='1')
+
+    if force_org_id and OrgID:
+        # Caller fixed the process: orgid is the DataTwin organisation, never a mapped source column
+        org_cols = [c for c in res.columns if str(c).lower() in ("orgid", "organizationid")]
+        for c in org_cols:
+            res[c] = OrgID
+        if not org_cols:
+            res["orgid"] = OrgID
+        clog(f"orgid forced to '{OrgID}' (process supplied by caller)", "INFO")
+    if force_transaction_type and TransactionType:
+        # Caller fixed the transaction type (e.g. 'Invoice'); a mapped column such as a SAP document type must not replace it
+        tt_cols = [c for c in res.columns if str(c).lower() == "transactiontype"]
+        for c in tt_cols:
+            res[c] = TransactionType
+        if not tt_cols:
+            res["transactiontype"] = TransactionType
+        clog(f"transactiontype forced to '{TransactionType}' (supplied by caller)", "INFO")
+
     table_name = 'active_'+ProcessCode.lower()
 
     # Ensure active_<processcode> table exists in tenant DB (auto-create if missing)
@@ -3835,7 +4251,17 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
     res["createddatetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     res["createdby"] = userid
     res["modifiedby"] = userid
-    res['sno'] = [str(i + 1) for i in range(len(res))]
+    # sno is part of the row key (processcode, themename, transactiontype, orgid, documentnumber, sno).
+    # Caller-routed data (SAP) maps it from a stable per-row value (passportid, item POSNR, constant 1
+    # for a header) so a changed source row updates its stored row; the position in the batch would not.
+    sno_cols = [c for c in res.columns if str(c).lower() == 'sno']
+    sno_src = res[sno_cols[0]] if (assign_context and len(sno_cols) == 1) else None
+    if sno_src is not None and not (sno_src.isna() | (sno_src.astype(str).str.strip() == '')).any():
+        res = res.drop(columns=sno_cols)
+        res['sno'] = sno_src.astype(str).str.strip().values
+    else:
+        res = res.drop(columns=[c for c in sno_cols if c != 'sno'])
+        res['sno'] = [str(i + 1) for i in range(len(res))]
 
     # Attach workbook metadata (GSTIN, Legal_Name, Financial_Year, etc.)
     meta = {}
@@ -3863,6 +4289,7 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
     res_cols = {col.lower(): col for col in res.columns}
     
+    auto_id_cols = set()   # key columns filled with generated ids (e.g. createdid): not row content
     for lde_col in lde_domains:
         col = lde_col.lower()
 
@@ -3894,6 +4321,7 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
 
                 else:
                     # Idempotent key lookup: reuse existing auto-ids if records already exist for this (processcode, themename, sno)
+                    auto_id_cols.add(col)
                     existing_id_map = {}
                     try:
                         with tenant_conn.cursor() as cur_map:
@@ -4093,6 +4521,10 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
             and res[_st_col].astype(str).str.upper().eq('GSTR9').any():
         res = fill_gstr9_link_refs(res)
 
+    # Audited books (FS): internal_link_ref + section from the shipped mapping
+    if str(ProcessCode).strip().upper() == 'FS':
+        res = fill_fs_link_refs(res)
+
     # Register auto-promoted extra columns in theme_mapping so reverse Excel export maps back to original source headers
     extra_col_map = dict(getattr(res, 'attrs', {}).get('extra_col_map', {}))
     if extra_col_map:
@@ -4134,8 +4566,28 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
         except Exception as e_ext:
             clog(f"Notice: extra column theme registration: {e_ext}", "WARNING")
 
+    # Caller-routed data (process_code supplied, e.g. SAP BSID -> BT3H): one context ID per document
+    if assign_context:
+        res = assign_context_ids(tenant_conn, table_name.lower(), res, OrgID)
+
     # Calculate deterministic row checksum across data columns
-    res["checksum"] = compute_row_checksum(res)
+    res["checksum"] = compute_row_checksum(res, extra_exclude=auto_id_cols)
+
+    # Every row already stored with the same content (same file uploaded again under another name /
+    # theme, so its keys differ): nothing to add - never insert a second copy
+    if str(ProcessCode).strip().upper() == 'FS':
+        res, n_dup, dup_src = _drop_fs_duplicate_lines(tenant_conn, table_name.lower(), res, TenantID, TransactionID)
+        if n_dup:
+            clog(f"⚠️ {n_dup} FS row(s) skipped: this org / GSTIN / financial year already has these statement lines "
+                 f"(loaded from '{os.path.basename(dup_src or '')}'). Delete those rows first to load a replacement.",
+                 "WARNING")
+        if res.empty:
+            return f"Data successfully loaded into {table_name} (Inserted: 0, Updated: 0, Skipped: {n_dup} duplicate)"
+
+    if _rows_already_stored(tenant_conn, table_name.lower(), res, TenantID):
+        clog(f"📊 Table '{table_name}': all {len(res)} row(s) of this sheet are already stored "
+             f"(same content checksum) - nothing inserted", "INFO")
+        return f"Data successfully loaded into {table_name} (Inserted: 0, Updated: 0, Skipped: {len(res)})"
     
     response = execute_data_operation_on_postgres(TenantID, res, table_name, lde_domains, 'insert', conn=tenant_conn, cur=tenant_cursor)
     
@@ -4418,9 +4870,19 @@ def Job_Handler(
     user_id=None,
     transaction_id=None,
     process=None,
-    save_location=None
+    save_location=None,
+    process_code=None,
+    transaction_type=None,
+    theme_name=None
 ):
+    """
+    process_code / transaction_type / theme_name (optional): set by callers that already know
+    the target, e.g. SAP BSID -> process_code='BT3I', transaction_type='Invoice'. AI classification
+    is then skipped, and the orgid column is forced to org_id (the AI tends to map a company-code
+    column to OrgID).
+    """
     global DataKey, TenantID, OrgID, ProductName, UserID, TransactionID, Process
+    forced_proc = str(process_code).strip().upper() if process_code and str(process_code).strip() else None
     
     # Resolve parameters with global / config fallbacks
     effective_source_type = str(source_type or config.get('defaults', 'source_type', fallback='file')).strip().lower()
@@ -4489,14 +4951,18 @@ def Job_Handler(
             
             # 2. Identifying Transaction type using AI for this sheet/table
             set_stage("AI_CLASSIFICATION", sheet_index=sheet_idx, total_sheets=total_sheets, detail=sheet_name)
-            response1 = transaction_identifier(bucket, effective_data_key, project_id, location, model_name, commondb_conn, input_data=sheet_df)
-            clog(f"Sheet/Table '{sheet_name}' AI Response: {response1}", "INFO")
-            
+            if forced_proc:
+                response1 = {"TransactionType": str(transaction_type or forced_proc).strip(), "ProcessCode": forced_proc}
+                clog(f"📌 ProcessCode '{forced_proc}' / TransactionType '{response1['TransactionType']}' supplied by caller - AI classification skipped", "INFO")
+            else:
+                response1 = transaction_identifier(bucket, effective_data_key, project_id, location, model_name, commondb_conn, input_data=sheet_df)
+                clog(f"Sheet/Table '{sheet_name}' AI Response: {response1}", "INFO")
+
             current_tx_type = response1["TransactionType"]
             sheet_proc_code = response1["ProcessCode"]
 
             # Route Financial Statements / Profit & Loss / Balance Sheet to unified 'FS' process code (table: active_fs)
-            is_fs = (
+            is_fs = not forced_proc and (
                 sheet_proc_code in ["FS", "IS"]
                 or any(
                     kw in str(x).lower()
@@ -4509,7 +4975,7 @@ def Job_Handler(
                 )
             )
             # Route all GSTR filings to unified 'TAXSYS' process code (table: active_taxsys)
-            is_gstr = not is_fs and any(
+            is_gstr = not forced_proc and not is_fs and any(
                 "gstr" in str(x).lower()
                 for x in [effective_data_key, sheet_name, current_tx_type, sheet_proc_code]
             )
@@ -4553,10 +5019,10 @@ def Job_Handler(
                 else:
                     clog(f"ProcessCode '{sheet_proc_code}' has no schema in 'process' table. Routing to handle_new_process_metadata to generate schema...", "WARNING")
                 proc_code, theme_nm = handle_new_process_metadata(
-                    effective_tenant_id, bucket, effective_data_key, response1, project_id, location, 
-                    model_name, commondb_conn, commondb_cursor, tenant_conn, tenant_cursor, 
+                    effective_tenant_id, bucket, effective_data_key, response1, project_id, location,
+                    model_name, commondb_conn, commondb_cursor, tenant_conn, tenant_cursor,
                     input_data=sheet_df,
-                    target_process_code="TAXSYS" if is_gstr else None
+                    target_process_code="TAXSYS" if is_gstr else forced_proc
                 )
                 update_transaction_log(tenant_conn, effective_org_id, effective_transaction_id, attributes={"ProcessCode": proc_code, "ThemeName": theme_nm})
             else:
@@ -4570,11 +5036,23 @@ def Job_Handler(
                     with tenant_conn.cursor() as cur_th:
                         cur_th.execute(QUERIES['check_table_exists'], (f"active_{sheet_proc_code.lower()}",))
                         if cur_th.fetchone():
-                            cur_th.execute(
-                                f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND (transactionid = %s OR statementtype = %s) LIMIT 1",
-                                (effective_data_key, current_txn_id, sheet_name)
-                            )
-                            t_row = cur_th.fetchone()
+                            # Same file again: the sheet at the same position of the earlier upload
+                            # (transaction id suffix _S<n>). Sheet names such as "Notes 1-9" never equal
+                            # their statementtype, so matching on that alone missed them and every
+                            # re-upload got a new theme -> new keys -> a second copy of the rows.
+                            t_row = None
+                            if total_sheets > 1:
+                                cur_th.execute(
+                                    f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND transactionid ~ %s LIMIT 1",
+                                    (effective_data_key, rf"_S{sheet_idx}$")
+                                )
+                                t_row = cur_th.fetchone()
+                            if not t_row:
+                                cur_th.execute(
+                                    f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s AND (transactionid = %s OR statementtype = %s) LIMIT 1",
+                                    (effective_data_key, current_txn_id, sheet_name)
+                                )
+                                t_row = cur_th.fetchone()
                             if not t_row and total_sheets == 1:
                                 cur_th.execute(
                                     f"SELECT themename FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}input = %s LIMIT 1",
@@ -4595,12 +5073,36 @@ def Job_Handler(
                 except Exception:
                     tenant_conn.rollback()
 
-                is_gstr9 = not is_fs and any(
+                is_gstr9 = not forced_proc and not is_fs and any(
                     g9 in str(x).lower()
                     for x in [effective_data_key, sheet_name, current_tx_type]
                     for g9 in ["gstr9", "gstr-9", "gstr_9"]
                 )
-                if is_gstr9:
+                caller_theme = None
+                if theme_name and str(theme_name).strip():
+                    theme_found = False
+                    try:
+                        with tenant_conn.cursor() as cur_ct:
+                            cur_ct.execute(
+                                f"SELECT 1 FROM theme_mapping WHERE {tenant_filter(effective_tenant_id)}productcode = %s AND processcode = %s AND themename = %s LIMIT 1",
+                                (effective_product_name, sheet_proc_code, str(theme_name).strip())
+                            )
+                            theme_found = cur_ct.fetchone() is not None
+                    except Exception:
+                        tenant_conn.rollback()
+                        raise
+                    if not theme_found:
+                        # A caller that pins a theme relies on its exact mapping: never let the AI
+                        # invent a different one (the job fails, the caller's rows stay queued)
+                        raise ValueError(
+                            f"Theme '{theme_name}' not found in theme_mapping for product "
+                            f"'{effective_product_name}' / process '{sheet_proc_code}'"
+                        )
+                    caller_theme = str(theme_name).strip()
+                if caller_theme:
+                    clog(f"📌 Theme '{caller_theme}' supplied by caller for '{sheet_name}'", "INFO")
+                    theme_nm = caller_theme
+                elif is_gstr9:
                     clog(f"📌 Dedicated GSTR-9 theme 'TAXSYS_GSTR9' selected for '{sheet_name}'", "INFO")
                     theme_nm = "TAXSYS_GSTR9"
                 elif existing_theme_for_sheet:
@@ -4619,9 +5121,12 @@ def Job_Handler(
             # 4. Updating the response in the database for this sheet/table
             set_stage("UPSERT", sheet_index=sheet_idx, total_sheets=total_sheets, detail=f"{sheet_name} -> active_{str(proc_code).lower()}")
             sheet_resp = updating_response_in_db(
-                effective_product_name, effective_tenant_id, effective_org_id, effective_data_key, current_tx_type, 
-                current_txn_id, proc_code, theme_nm, commondb_conn, tenant_conn, tenant_cursor, 
-                effective_user_id, input_data=sheet_df, sheet_name=sheet_name
+                effective_product_name, effective_tenant_id, effective_org_id, effective_data_key, current_tx_type,
+                current_txn_id, proc_code, theme_nm, commondb_conn, tenant_conn, tenant_cursor,
+                effective_user_id, input_data=sheet_df, sheet_name=sheet_name,
+                force_org_id=bool(forced_proc),
+                force_transaction_type=bool(forced_proc and transaction_type),
+                assign_context=bool(forced_proc)
             )
             clog(f"Sheet/Table '{sheet_name}' Ingestion Result: {sheet_resp}", "SUCCESS")
             overall_results[sheet_name] = sheet_resp
@@ -4663,6 +5168,7 @@ def Job_Handler(
             "source_name": effective_source_table if effective_source_type == "table" else effective_data_key,
             "source_db": effective_source_db if effective_source_type == "table" else None,
             "target_process_code": target_proc,
+            "process_code_source": "caller" if forced_proc else "ai",
             "target_table": f"active_{target_proc.lower()}",
             "total_sheets": total_sheets,
             "sheets": list(sheets_dict.keys()),

@@ -1,0 +1,1122 @@
+{
+ "_source": "Audited_Book_internal_linkref_updated-v2.xlsx (sheet 'Audit Book (2)')",
+ "_note": "Ordered list (order matters for repeated lines such as TOTAL); matched in app.fill_fs_link_refs on statementtype + note number + account description",
+ "entries": [
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_funds_capital_fund",
+   "section": "I. FUNDS AND LIABILITIES > (1) Funds (Shareholders' funds)",
+   "description": "(a) Capital fund (in lieu of share capital)"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_funds_reserves_and_surplus",
+   "section": "I. FUNDS AND LIABILITIES > (1) Funds (Shareholders' funds)",
+   "description": "(b) Reserves and surplus"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_funds_money_received_share_warrants",
+   "section": "I. FUNDS AND LIABILITIES > (1) Funds (Shareholders' funds)",
+   "description": "(c) Money received against share warrants"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_share_application_money",
+   "section": "I. FUNDS AND LIABILITIES",
+   "description": "(2) Share application money pending allotment"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_non_current_liabilities_long_term_borrowings",
+   "section": "I. FUNDS AND LIABILITIES > (3) Non-current liabilities",
+   "description": "(a) Long-term borrowings"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_non_current_liabilities_deferred_tax_liabilities_net",
+   "section": "I. FUNDS AND LIABILITIES > (3) Non-current liabilities",
+   "description": "(b) Deferred tax liabilities (Net)"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_non_current_liabilities_other_long_term_liabilities",
+   "section": "I. FUNDS AND LIABILITIES > (3) Non-current liabilities",
+   "description": "(c) Other long-term liabilities"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_non_current_liabilities_long_term_provisions",
+   "section": "I. FUNDS AND LIABILITIES > (3) Non-current liabilities",
+   "description": "(d) Long-term provisions"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_current_liabilities_short_term_borrowings",
+   "section": "I. FUNDS AND LIABILITIES > (4) Current liabilities",
+   "description": "(a) Short-term borrowings"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_current_liabilities_trade_payables",
+   "section": "I. FUNDS AND LIABILITIES > (4) Current liabilities",
+   "description": "(b) Trade payables"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_current_liabilities_trade_payables_msme",
+   "section": "I. FUNDS AND LIABILITIES > (4) Current liabilities",
+   "description": "(A) total outstanding dues of micro enterprises and small enterprises"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_current_liabilities_trade_payables_others",
+   "section": "I. FUNDS AND LIABILITIES > (4) Current liabilities",
+   "description": "(B) total outstanding dues of creditors other than micro and small enterprises"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_current_liabilities_other_current_liabilities",
+   "section": "I. FUNDS AND LIABILITIES > (4) Current liabilities",
+   "description": "(c) Other current liabilities"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_current_liabilities_short_term_provisions",
+   "section": "I. FUNDS AND LIABILITIES > (4) Current liabilities",
+   "description": "(d) Short-term provisions"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_funds_and_liabilities_total_liabilities",
+   "section": "I. FUNDS AND LIABILITIES",
+   "description": "TOTAL"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_ppe_and_intangibles_property_plant_equipment",
+   "section": "II. ASSETS > (1) Non-current assets > (a) Property, Plant and Equipment and Intangible assets",
+   "description": "(i) Property, Plant and Equipment"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_ppe_and_intangibles_intangible_assets",
+   "section": "II. ASSETS > (1) Non-current assets > (a) Property, Plant and Equipment and Intangible assets",
+   "description": "(ii) Intangible assets"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_ppe_and_intangibles_capital_wip",
+   "section": "II. ASSETS > (1) Non-current assets > (a) Property, Plant and Equipment and Intangible assets",
+   "description": "(iii) Capital work-in-progress"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_ppe_and_intangibles_intangible_assets_under_dev",
+   "section": "II. ASSETS > (1) Non-current assets > (a) Property, Plant and Equipment and Intangible assets",
+   "description": "(iv) Intangible assets under development"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_non_current_investments",
+   "section": "II. ASSETS > (1) Non-current assets",
+   "description": "(b) Non-current investments"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_deferred_tax_assets_net",
+   "section": "II. ASSETS > (1) Non-current assets",
+   "description": "(c) Deferred tax assets (Net)"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_long_term_loans_advances",
+   "section": "II. ASSETS > (1) Non-current assets",
+   "description": "(d) Long-term loans and advances"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_non_current_assets_other_non_current_assets",
+   "section": "II. ASSETS > (1) Non-current assets",
+   "description": "(e) Other non-current assets"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_current_investments",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(a) Current investments"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_inventories",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(b) Inventories"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_trade_receivables",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(c) Trade receivables"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_cash_and_cash_equivalents",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(d) Cash and cash equivalents"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_other_bank_balances",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(e) Bank balances other than (d) above"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_short_term_loans_advances",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(f) Short-term loans and advances"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_current_assets_other_current_assets",
+   "section": "II. ASSETS > (2) Current assets",
+   "description": "(g) Other current assets"
+  },
+  {
+   "statementtype": "Balance Sheet",
+   "internal_link_ref": "BS_assets_total_assets",
+   "section": "II. ASSETS",
+   "description": "TOTAL"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_income_revenue_from_operations",
+   "section": "Continuing Operations > Income",
+   "description": "I. Revenue from operations"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_income_other_income",
+   "section": "Continuing Operations > Income",
+   "description": "II. Other income"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_income_total_income",
+   "section": "Continuing Operations > Income",
+   "description": "III. Total Income (I + II)"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_cost_of_materials_consumed",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Cost of materials consumed"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_purchases_of_stock_in_trade",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Purchases of Stock-in-Trade"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_changes_in_inventories",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Changes in inventories of finished goods and work-in-progress"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_employee_benefits_expense",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Employee benefits expense"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_finance_costs",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Finance costs"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_depreciation_and_amortisation",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Depreciation and amortisation expense"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_other_expenses",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Other expenses"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_expenses_total_expenses",
+   "section": "Continuing Operations > IV. Expenses",
+   "description": "Total Expenses (IV)"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_surplus_before_exceptional_tax",
+   "section": "Continuing Operations > Surplus / Tax",
+   "description": "V. Surplus before exceptional and extraordinary items and tax (III - IV)"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_exceptional_items",
+   "section": "Continuing Operations > Surplus / Tax",
+   "description": "VI. Exceptional items"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_surplus_before_extraordinary_tax",
+   "section": "Continuing Operations > Surplus / Tax",
+   "description": "VII. Surplus before extraordinary items and tax (V - VI)"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_extraordinary_items",
+   "section": "Continuing Operations > Surplus / Tax",
+   "description": "VIII. Extraordinary items"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_surplus_before_tax",
+   "section": "Continuing Operations > Surplus / Tax",
+   "description": "IX. Surplus before tax (VII - VIII)"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_tax_expense_total_tax_expense",
+   "section": "Continuing Operations > X. Tax expense",
+   "description": "X. Tax expense"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_tax_expense_current_tax",
+   "section": "Continuing Operations > X. Tax expense",
+   "description": "(1) Current tax"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_tax_expense_deferred_tax",
+   "section": "Continuing Operations > X. Tax expense",
+   "description": "(2) Deferred tax"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_surplus_continuing_operations",
+   "section": "Continuing Operations > Surplus / Tax",
+   "description": "XI. Surplus for the period from continuing operations (IX - X)"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_discontinuing_operations_net_surplus",
+   "section": "Discontinuing Operations",
+   "description": "XII–XIV. Discontinuing operations"
+  },
+  {
+   "statementtype": "Profit and Loss",
+   "internal_link_ref": "PL_surplus_surplus_for_period",
+   "section": "Net Surplus",
+   "description": "XV. Surplus for the period (XI + XIV)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note1_capital_fund_fy23",
+   "section": "1. Capital fund (in lieu of share capital)",
+   "description": "Capital fund – FY 2022-23 (capital grants utilised for fixed assets)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note1_capital_fund_fy22",
+   "section": "1. Capital fund (in lieu of share capital)",
+   "description": "Capital fund – FY 2021-22"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note2_reserves_surplus_endowment_funds_fy23",
+   "section": "2. Reserves and surplus",
+   "description": "Earmarked and endowment funds – FY 2022-23"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note2_reserves_surplus_endowment_funds_fy22",
+   "section": "2. Reserves and surplus",
+   "description": "Earmarked and endowment funds – FY 2021-22"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note2_reserves_surplus_surplus_ie_fy23",
+   "section": "2. Reserves and surplus",
+   "description": "Surplus in Income & Expenditure – FY 2022-23 (net of transfer to endowment funds)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note2_reserves_surplus_surplus_ie_fy22",
+   "section": "2. Reserves and surplus",
+   "description": "Surplus in Income & Expenditure – FY 2021-22 (net of transfer to endowment funds)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note2_reserves_surplus_total_fy23",
+   "section": "2. Reserves and surplus",
+   "description": "Total reserves and surplus – 31-03-2023"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note2_reserves_surplus_total_fy22",
+   "section": "2. Reserves and surplus",
+   "description": "Total reserves and surplus – 31-03-2022"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note3_long_term_borrowings",
+   "section": "3. Long-term borrowings",
+   "description": "Nil"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note4_deferred_tax_liabilities",
+   "section": "4. Deferred tax liabilities (Net)",
+   "description": "Nil (income exempt from tax)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note4a_other_lt_liabilities_unspent_grants",
+   "section": "4A. Other long-term liabilities",
+   "description": "Unspent balances of sponsored research projects and earmarked grants"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note4a_other_lt_liabilities_total",
+   "section": "4A. Other long-term liabilities",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note5_long_term_provisions_pension_and_gratuity",
+   "section": "5. Long-term provisions",
+   "description": "(a) Provision for pension and gratuity"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note5_long_term_provisions_leave_encashment",
+   "section": "5. Long-term provisions",
+   "description": "(b) Provision for leave encashment"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note5_long_term_provisions_total",
+   "section": "5. Long-term provisions",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note6_short_term_borrowings",
+   "section": "6. Short-term borrowings",
+   "description": "Nil"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note7_trade_payables_msme",
+   "section": "7. Trade payables (ageing from due date)",
+   "description": "(i) MSME"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note7_trade_payables_others",
+   "section": "7. Trade payables (ageing from due date)",
+   "description": "(ii) Others"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note7_trade_payables_disputed",
+   "section": "7. Trade payables (ageing from due date)",
+   "description": "(iii) Disputed dues – MSME / Others"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note7_trade_payables_total",
+   "section": "7. Trade payables (ageing from due date)",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_curr_maturities_lt_debt",
+   "section": "8. Other current liabilities",
+   "description": "(a) Current maturities of long-term debt"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_fees_received_in_advance",
+   "section": "8. Other current liabilities",
+   "description": "(b) Fees received in advance (exempt educational services – no GST liability)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_gst_output_payable",
+   "section": "8. Other current liabilities",
+   "description": "(c) Statutory dues – GST output tax payable (net), March return"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_gst_rcm_payable",
+   "section": "8. Other current liabilities",
+   "description": "(d) Statutory dues – GST payable under reverse charge"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_tds_payable_it",
+   "section": "8. Other current liabilities",
+   "description": "(e) Statutory dues – TDS payable (Income-tax)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_gst_tds_sec51_payable",
+   "section": "8. Other current liabilities",
+   "description": "(f) Statutory dues – GST TDS deducted u/s 51 payable"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_caution_deposits_others",
+   "section": "8. Other current liabilities",
+   "description": "(g) Caution deposits and other payables"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note8_other_current_liabilities_total",
+   "section": "8. Other current liabilities",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note9_short_term_provisions_employee_benefits_current",
+   "section": "9. Short-term provisions",
+   "description": "(a) Provision for employee benefits – current portion"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note9_short_term_provisions_income_tax_provision",
+   "section": "9. Short-term provisions",
+   "description": "(b) Provision for income tax"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note9_short_term_provisions_total",
+   "section": "9. Short-term provisions",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_land",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(a) Land"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_buildings",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(b) Buildings"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_lab_equipment",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(c) Laboratory equipment"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_furniture_fixtures",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(d) Furniture and fixtures"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_computers_peripherals",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(e) Computers and peripherals"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_vehicles",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(f) Vehicles"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_library_books",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "(g) Library books"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_tangible_total",
+   "section": "Note 10 – Property, Plant and Equipment > Tangible assets",
+   "description": "TOTAL"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note10_ppe_cwip_projects_in_progress",
+   "section": "Note 10 – Property, Plant and Equipment > Capital work-in-progress – ageing",
+   "description": "Projects in progress – academic blocks and hostels"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note11_non_current_investments_endowment_deposits",
+   "section": "11. Non-current investments",
+   "description": "Endowment fund investments – term deposits with scheduled banks (> 12 months)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note11_non_current_investments_total",
+   "section": "11. Non-current investments",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note12_lt_loans_advances_capital_advances",
+   "section": "12. Long-term loans and advances (unsecured, considered good)",
+   "description": "(a) Capital advances"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note12_lt_loans_advances_security_deposits",
+   "section": "12. Long-term loans and advances (unsecured, considered good)",
+   "description": "(b) Security deposits – KSEB, KWA and others"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note12_lt_loans_advances_staff_advances",
+   "section": "12. Long-term loans and advances (unsecured, considered good)",
+   "description": "(c) Housing and vehicle advances to staff"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note12_lt_loans_advances_total",
+   "section": "12. Long-term loans and advances (unsecured, considered good)",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note13_other_non_current_assets",
+   "section": "13. Other non-current assets",
+   "description": "Nil"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note14_current_investments",
+   "section": "14. Current investments",
+   "description": "Nil"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note15_inventories_lab_consumables",
+   "section": "15. Inventories (valued at lower of cost and net realisable value)",
+   "description": "(a) Laboratory consumables and stores"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note15_inventories_publications",
+   "section": "15. Inventories (valued at lower of cost and net realisable value)",
+   "description": "(b) University publications"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note15_inventories_total",
+   "section": "15. Inventories (valued at lower of cost and net realisable value)",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note16_trade_receivables_undisputed_good",
+   "section": "16. Trade receivables (unsecured, considered good) – ageing",
+   "description": "(i) Undisputed – considered good"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note16_trade_receivables_total",
+   "section": "16. Trade receivables (unsecured, considered good) – ageing",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note17_cash_bank_bank_casa",
+   "section": "17. Cash and cash equivalents",
+   "description": "(a) Balances with banks – current and savings accounts"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note17_cash_bank_fd_upto_3m",
+   "section": "17. Cash and cash equivalents",
+   "description": "(b) Fixed deposits with original maturity up to 3 months"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note17_cash_bank_cash_on_hand",
+   "section": "17. Cash and cash equivalents",
+   "description": "(c) Cash on hand"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note17_cash_bank_total_cash_equivalents",
+   "section": "17. Cash and cash equivalents",
+   "description": "Total cash and cash equivalents"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note17_cash_bank_other_bank_balances",
+   "section": "17. Cash and cash equivalents",
+   "description": "Other bank balances – fixed deposits with maturity more than 3 months"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18_st_loans_advances_supplier_advances",
+   "section": "18. Short-term loans and advances (unsecured, considered good)",
+   "description": "(a) Advances to suppliers and contractors"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18_st_loans_advances_prepaid_expenses",
+   "section": "18. Short-term loans and advances (unsecured, considered good)",
+   "description": "(b) Prepaid expenses"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18_st_loans_advances_project_recoverables",
+   "section": "18. Short-term loans and advances (unsecured, considered good)",
+   "description": "(c) Amounts recoverable from funding agencies (sponsored projects)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18_st_loans_advances_total",
+   "section": "18. Short-term loans and advances (unsecured, considered good)",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18a_other_current_assets_unbilled_revenue",
+   "section": "18A. Other current assets",
+   "description": "(a) Unbilled revenue (contract assets) – taxable services"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18a_other_current_assets_gst_ecl_balance",
+   "section": "18A. Other current assets",
+   "description": "(b) Balance in GST electronic credit ledger (Note 18B)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18a_other_current_assets_gst_cash_ledger_balance",
+   "section": "18A. Other current assets",
+   "description": "(c) Balance in GST electronic cash ledger"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18a_other_current_assets_grants_receivable",
+   "section": "18A. Other current assets",
+   "description": "(d) Grants receivable from Government"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18a_other_current_assets_interest_accrued",
+   "section": "18A. Other current assets",
+   "description": "(e) Interest accrued on fixed deposits"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18a_other_current_assets_total",
+   "section": "18A. Other current assets",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_opening_balance",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Opening balance in electronic credit ledger (01-04-2022)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_availed_inputs",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Add: ITC availed – inputs"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_availed_input_services",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Add: ITC availed – input services"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_availed_import_goods",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Add: ITC availed – IGST on import of goods"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_availed_capital_goods",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Add: ITC availed – capital goods"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_total_availed",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Total ITC availed during the year"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_reversed_rule42",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Less: ITC reversed – Rule 42 (common credit, exempt supplies)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_reversed_others",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Less: ITC reversed – others"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_total_reversed",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Total ITC reversed (charged to Note 27(n))"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_utilised_output_tax",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Less: ITC utilised for discharge of output tax"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note18b_gst_itc_movement_closing_balance",
+   "section": "18B. GST input tax credit – movement per books (FY 2022-23)",
+   "description": "Closing balance in electronic credit ledger (31-03-2023)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_grants_in_aid_non_supply",
+   "section": "19. Revenue from operations > Grants-in-aid",
+   "description": "a. Grants-in-aid from Government of Kerala / UGC recognised as income (not a supply)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_exempt_academic_fees",
+   "section": "19. Revenue from operations > Exempt supplies (educational services – Entry 66, Notfn. 12/2017-CT(R))",
+   "description": "b. Academic fees – tuition, admission and examination"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_exempt_hostel_student_services",
+   "section": "19. Revenue from operations > Exempt supplies (educational services – Entry 66, Notfn. 12/2017-CT(R))",
+   "description": "c. Hostel, mess and other student services"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_taxable_consultancy_b2b",
+   "section": "19. Revenue from operations > Taxable supplies",
+   "description": "d. Consultancy, testing and sponsored research services – registered recipients (B2B)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_taxable_training_b2c",
+   "section": "19. Revenue from operations > Taxable supplies",
+   "description": "e. Training programmes, conferences and other services – unregistered recipients (B2C)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_taxable_sez_with_igst",
+   "section": "19. Revenue from operations > Taxable supplies",
+   "description": "f. Supplies to SEZ units (on payment of IGST)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_non_gst_and_schedule3",
+   "section": "19. Revenue from operations > Non-GST supplies",
+   "description": "g. Non-GST supplies and Schedule III ('no supply') transactions"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19_revenue_ops_total",
+   "section": "19. Revenue from operations",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19a_gst_rate_summary_rcm_5pct",
+   "section": "19A. GST rate-wise summary of taxable supplies and RCM inward supplies (per books)",
+   "description": "5% – inward supplies under reverse charge (GTA)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19a_gst_rate_summary_outward_12pct",
+   "section": "19A. GST rate-wise summary of taxable supplies and RCM inward supplies (per books)",
+   "description": "12% – outward taxable supplies"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19a_gst_rate_summary_outward_18pct",
+   "section": "19A. GST rate-wise summary of taxable supplies and RCM inward supplies (per books)",
+   "description": "18% – outward taxable supplies (incl. SEZ with IGST)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note19a_gst_rate_summary_total",
+   "section": "19A. GST rate-wise summary of taxable supplies and RCM inward supplies (per books)",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note20_other_income_interest_income_exempt",
+   "section": "20. Other income",
+   "description": "a. Interest income on fixed deposits and savings accounts (exempt supply)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note20_other_income_total",
+   "section": "20. Other income",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note21_cost_of_materials_opening_stock",
+   "section": "21. Cost of materials consumed (laboratory consumables and stores)",
+   "description": "Opening stock of stores and consumables"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note21_cost_of_materials_purchases_domestic",
+   "section": "21. Cost of materials consumed (laboratory consumables and stores)",
+   "description": "Add: Purchases – domestic (net of eligible ITC)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note21_cost_of_materials_purchases_imported",
+   "section": "21. Cost of materials consumed (laboratory consumables and stores)",
+   "description": "Add: Purchases – imported (net of IGST credit)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note21_cost_of_materials_closing_stock",
+   "section": "21. Cost of materials consumed (laboratory consumables and stores)",
+   "description": "Less: Closing stock of stores and consumables"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note21_cost_of_materials_total",
+   "section": "21. Cost of materials consumed (laboratory consumables and stores)",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note22_purchases_stock_in_trade",
+   "section": "22. Purchases of stock-in-trade",
+   "description": "Nil"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note23_inventory_changes_opening_stock",
+   "section": "23. Changes in inventories (University publications)",
+   "description": "Opening stock – publications"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note23_inventory_changes_closing_stock",
+   "section": "23. Changes in inventories (University publications)",
+   "description": "Closing stock – publications"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note23_inventory_changes_total",
+   "section": "23. Changes in inventories (University publications)",
+   "description": "Total (opening − closing)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note24_employee_benefits_salaries_allowances",
+   "section": "24. Employee benefit expenses",
+   "description": "a) Salaries and allowances – teaching and non-teaching staff"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note24_employee_benefits_pension_terminal",
+   "section": "24. Employee benefit expenses",
+   "description": "b) Pension and terminal benefits"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note24_employee_benefits_pf_nps_contribution",
+   "section": "24. Employee benefit expenses",
+   "description": "c) Contribution to provident fund and NPS"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note24_employee_benefits_staff_welfare",
+   "section": "24. Employee benefit expenses",
+   "description": "d) Staff welfare expenses"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note24_employee_benefits_total",
+   "section": "24. Employee benefit expenses",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note25_finance_costs",
+   "section": "25. Finance costs",
+   "description": "Nil (no borrowings)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note26_depreciation_depreciation_ppe",
+   "section": "26. Depreciation and amortisation expense",
+   "description": "a) Depreciation (Note 10)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note26_depreciation_total",
+   "section": "26. Depreciation and amortisation expense",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_power_fuel_water",
+   "section": "27. Other expenses",
+   "description": "a) Power, fuel and water"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_repairs_maintenance",
+   "section": "27. Other expenses",
+   "description": "b) Repairs and maintenance"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_scholarships_fellowships",
+   "section": "27. Other expenses",
+   "description": "c) Scholarships, fellowships and stipends"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_research_project_expenses",
+   "section": "27. Other expenses",
+   "description": "d) Research and sponsored project expenses"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_examination_expenses",
+   "section": "27. Other expenses",
+   "description": "e) Examination expenses"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_security_housekeeping",
+   "section": "27. Other expenses",
+   "description": "f) Security and housekeeping services"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_library_journals_eresources",
+   "section": "27. Other expenses",
+   "description": "g) Library books, journals and e-resources"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_travel_conveyance",
+   "section": "27. Other expenses",
+   "description": "h) Travel and conveyance"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_printing_stationery",
+   "section": "27. Other expenses",
+   "description": "i) Printing and stationery"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_communication_expenses",
+   "section": "27. Other expenses",
+   "description": "j) Communication expenses"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_professional_legal",
+   "section": "27. Other expenses",
+   "description": "k) Professional and legal charges"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_rent",
+   "section": "27. Other expenses",
+   "description": "l) Rent"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_insurance",
+   "section": "27. Other expenses",
+   "description": "m) Insurance"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_gst_itc_reversed_expense",
+   "section": "27. Other expenses",
+   "description": "n) GST input tax credit reversed – Rule 42 and others (Note 18B)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_gst_rcm_expense",
+   "section": "27. Other expenses",
+   "description": "o) GST paid under reverse charge (ITC not availed)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_gst_late_fee",
+   "section": "27. Other expenses",
+   "description": "p) GST late fee paid"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_gst_delay_interest",
+   "section": "27. Other expenses",
+   "description": "q) Interest on delayed payment of GST"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_auditors_remuneration",
+   "section": "27. Other expenses",
+   "description": "r) Payment to auditors"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_bad_debts_written_off",
+   "section": "27. Other expenses",
+   "description": "s) Bad debts written off"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_miscellaneous_expenses",
+   "section": "27. Other expenses",
+   "description": "t) Miscellaneous expenses"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note27_other_expenses_total",
+   "section": "27. Other expenses",
+   "description": "Total"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note28_tax_expense_current_tax",
+   "section": "28. Tax expense",
+   "description": "Current tax – Nil (income exempt u/s 10(23C)(iiiab) of the Income-tax Act, 1961)"
+  },
+  {
+   "statementtype": "Notes to Accounts",
+   "internal_link_ref": "NOTES_note28_tax_expense_total",
+   "section": "28. Tax expense",
+   "description": "Total"
+  }
+ ]
+}
