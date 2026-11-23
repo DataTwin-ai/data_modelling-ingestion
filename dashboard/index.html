@@ -3,377 +3,955 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ingestion Console</title>
+<title>Data Modelling &amp; Ingestion Console</title>
 <style>
   :root {
-    --bg: #eef1f8;
+    --bg: #f8fafc;
     --panel: #ffffff;
-    --panel-2: #f3f5fb;
-    --border: #dde2ee;
-    --text: #182033;
-    --muted: #63708a;
-    --accent: #4f46e5;
-    --accent-2: #0ea5a4;
-    --accent-soft: #ecebfd;
-    --ok: #0f9d6b;
-    --ok-soft: #dff6ec;
-    --warn: #c27803;
-    --warn-soft: #fdf1d8;
-    --err: #d93a4a;
-    --err-soft: #fde7ea;
-    --stage: #7c4dff;
-    --head-1: #1e1b4b;
-    --head-2: #3730a3;
-    --log-bg: #0f1324;
-    --log-text: #d8def0;
-    --log-muted: #7f89a8;
-    --shadow: 0 1px 2px rgba(24,32,51,.06), 0 4px 14px rgba(24,32,51,.06);
-    --radius: 12px;
-    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+    --panel-subtle: #f8fafc;
+    --panel-hover: #f1f5f9;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --primary: #0f172a;
+    --primary-hover: #1e293b;
+    --primary-btn: #1e293b;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-soft: #eff6ff;
+    --ok: #059669;
+    --ok-soft: #ecfdf5;
+    --ok-border: #a7f3d0;
+    --warn: #d97706;
+    --warn-soft: #fffbeb;
+    --warn-border: #fde68a;
+    --err: #dc2626;
+    --err-soft: #fef2f2;
+    --err-border: #fecaca;
+    --log-bg: #090d16;
+    --log-text: #e2e8f0;
+    --log-muted: #64748b;
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    --radius: 8px;
+    --radius-lg: 10px;
+    --mono: "SF Mono", Consolas, "JetBrains Mono", Menlo, Courier, monospace;
     color-scheme: light;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0d1020;
-      --panel: #151a2e;
-      --panel-2: #1c2239;
-      --border: #2a3150;
-      --text: #e6e9f5;
-      --muted: #8e98b6;
-      --accent: #8b85ff;
-      --accent-2: #2dd4bf;
-      --accent-soft: #252a55;
-      --ok: #34d399;
-      --ok-soft: #12332a;
-      --warn: #fbbf24;
-      --warn-soft: #3a2e10;
-      --err: #fb7185;
-      --err-soft: #3d1a24;
-      --stage: #a78bfa;
-      --head-1: #0b0e1f;
-      --head-2: #27236b;
-      --log-bg: #080b17;
-      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
-      color-scheme: dark;
-    }
-  }
-  * { box-sizing: border-box; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   [hidden] { display: none !important; }
-  .detail-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
   body {
-    margin: 0;
     background: var(--bg);
-    color: var(--text);
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text-primary);
+    font: 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
   }
+
+  /* Header */
   header {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 14px 20px; color: #fff;
-    background: linear-gradient(110deg, var(--head-1) 0%, var(--head-2) 70%, #0e7490 100%);
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow-xs);
   }
-  header h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .2px; }
-  header .sub { color: rgba(255,255,255,.72); font-size: 12px; }
-  .conn {
-    display: flex; align-items: center; gap: 6px; font-size: 12px; color: #fff;
-    background: rgba(255,255,255,.12); padding: 4px 10px; border-radius: 99px;
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
-  .dot.down { background: var(--err); }
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    background: #0f172a;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+  }
+  .brand-title {
+    font-size: 15px;
+    font-weight: 650;
+    color: var(--text-primary);
+    letter-spacing: -0.2px;
+  }
+  .brand-subtitle {
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
 
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #cbd5e1;
+  }
+  .status-dot.live {
+    background: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  }
+  .status-dot.down { background: var(--err); }
+
+  /* Main Layout */
   main {
-    display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px;
-    padding: 16px 20px; height: calc(100vh - 57px);
+    flex: 1;
+    padding: 20px 28px;
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 20px;
+    align-items: start;
   }
-  @media (max-width: 900px) {
-    main { grid-template-columns: 1fr; height: auto; }
+  @media (max-width: 1024px) {
+    main { grid-template-columns: 1fr; }
   }
-  .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+
+  /* Card */
   .card {
-    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 16px; min-height: 0; box-shadow: var(--shadow);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 18px;
   }
-  .card h2 {
-    margin: 0 0 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--accent);
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  }
-  .card h2 .count { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
 
-  /* Upload form */
-  label.field { display: block; margin-bottom: 10px; }
-  label.field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  input[type=text] {
-    width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border);
-    background: var(--panel-2); color: var(--text); font: inherit;
+  /* Tabs Switcher */
+  .tab-nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 3px;
+    gap: 3px;
+    margin-bottom: 18px;
   }
-  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .drop {
-    border: 1.5px dashed var(--border); border-radius: 8px; padding: 18px 12px; text-align: center;
-    color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; margin-bottom: 12px;
+  .tab-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
   }
-  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
-  .drop strong { color: var(--text); display: block; word-break: break-all; }
-  .drop small { display: block; margin-top: 4px; }
-  button.primary {
-    width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-2));
-    color: #fff; font: inherit; font-weight: 650; cursor: pointer; transition: filter .15s, transform .05s;
+  .tab-btn:hover { color: var(--text-primary); }
+  .tab-btn.active {
+    background: #ffffff;
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   }
-  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
-  button.primary:active:not(:disabled) { transform: translateY(1px); }
-  button.primary:disabled { opacity: .5; cursor: not-allowed; }
-  .msg { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 7px; }
-  .msg.ok { background: var(--ok-soft); color: var(--ok); }
-  .msg.err { background: var(--err-soft); color: var(--err); }
-  .bar { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-  .bar.ok > i { background: var(--ok); }
-  .bar.err > i { background: var(--err); }
-  #uploadBar { margin-top: 10px; }
 
-  /* Jobs list */
-  .jobs { flex: 1; display: flex; flex-direction: column; }
-  .jobs-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; }
-  .job {
-    padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);
-    border-left: 4px solid var(--muted); background: var(--panel);
+  .form-heading {
+    font-size: 13.5px;
+    font-weight: 650;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
-  .job.running { border-left-color: var(--accent); }
-  .job.completed { border-left-color: var(--ok); }
-  .job.failed, .job.interrupted { border-left-color: var(--err); }
-  .job.queued { border-left-color: var(--warn); }
-  .job:hover { background: var(--panel-2); }
-  .job.sel { background: var(--accent-soft); border-color: var(--accent); }
-  .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; margin-top: 8px; border-top: 1px solid var(--border); }
-  .pager span { font-size: 12px; color: var(--muted); }
-  .pager button {
-    border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 7px;
-    padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
-  }
-  .pager button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  .pager button:disabled { opacity: .45; cursor: not-allowed; }
-  .job .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-  .job .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .job .meta { color: var(--muted); font-size: 12px; margin: 2px 0 6px; display: flex; justify-content: space-between; gap: 8px; }
-  .empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
 
-  .badge {
-    font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; white-space: nowrap;
-    background: var(--panel-2); color: var(--muted);
+  /* Input Fields */
+  .form-group { margin-bottom: 13px; }
+  .form-label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
   }
-  .badge.running { background: var(--accent-soft); color: var(--accent); }
-  .badge.completed { background: var(--ok-soft); color: var(--ok); }
-  .badge.failed, .badge.interrupted { background: var(--err-soft); color: var(--err); }
-  .badge.queued { background: var(--warn-soft); color: var(--warn); }
+  .form-control {
+    width: 100%;
+    padding: 8px 11px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: #ffffff;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 13px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-control::placeholder {
+    color: var(--text-muted);
+    opacity: 0.8;
+  }
+  .form-control:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
 
-  /* Detail */
-  .detail { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .detail-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
-  .detail-head h3 { margin: 0; font-size: 16px; word-break: break-all; }
-  .kv { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .kv b { color: var(--text); font-weight: 600; }
+  /* Dropzone */
+  .drop-box {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 8px;
+    background: var(--panel-subtle);
+    padding: 24px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: 12px;
+  }
+  .drop-box:hover, .drop-box.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .drop-icon-svg {
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .drop-primary-text {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .drop-secondary-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
 
-  .stepper { display: flex; gap: 4px; margin: 16px 0 6px; overflow-x: auto; padding-bottom: 2px; }
-  .step {
-    flex: 1; min-width: 92px; text-align: center; font-size: 11px; color: var(--muted);
-    padding-top: 8px; border-top: 3px solid var(--border); white-space: nowrap;
+  /* Selected Files Chips */
+  .files-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+    max-height: 160px;
+    overflow-y: auto;
   }
-  .step { border-radius: 2px; }
-  .step.done { border-color: var(--ok); color: var(--ok); font-weight: 600; }
-  .step.cur { border-color: var(--accent); color: var(--accent); font-weight: 650; }
-  .step.cur.pulse { animation: pulse 1.4s ease-in-out infinite; }
-  .step.fail { border-color: var(--err); color: var(--err); font-weight: 650; }
-  @keyframes pulse { 50% { opacity: .45; } }
-  .stage-detail { font-size: 12px; color: var(--muted); margin-bottom: 12px; min-height: 18px; }
-  .stage-detail b { color: var(--text); }
+  .file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 9px;
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .file-item-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  .file-ext-tag {
+    font-size: 9px;
+    font-weight: 700;
+    background: #e2e8f0;
+    color: var(--text-secondary);
+    padding: 2px 4px;
+    border-radius: 3px;
+  }
+  .file-item-name {
+    font-weight: 550;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 210px;
+  }
+  .file-item-size {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .file-remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 1px 4px;
+    font-size: 13px;
+    border-radius: 3px;
+    line-height: 1;
+  }
+  .file-remove-btn:hover {
+    color: var(--err);
+    background: var(--err-soft);
+  }
 
-  .errbox { background: var(--err-soft); color: var(--err); padding: 8px 10px; border-radius: 7px; font-size: 13px; margin-bottom: 12px; word-break: break-word; }
-  .result { background: var(--ok-soft); color: var(--text); padding: 8px 10px; border-radius: 7px; font-size: 12px; margin-bottom: 12px; }
-  .result b { color: var(--ok); }
+  /* Buttons */
+  .btn-submit {
+    width: 100%;
+    padding: 9px 14px;
+    background: #0f172a;
+    color: #ffffff;
+    border: 1px solid #0f172a;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--shadow-xs);
+    transition: all 0.15s ease;
+  }
+  .btn-submit:hover:not(:disabled) {
+    background: #1e293b;
+    border-color: #1e293b;
+  }
+  .btn-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #64748b;
+    border-color: #64748b;
+  }
 
-  .log-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
-  .seg button {
-    border: 0; background: transparent; color: var(--muted); padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  .status-banner {
+    margin-top: 11px;
+    padding: 8px 11px;
+    border-radius: 6px;
+    font-size: 12px;
   }
-  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-  .log-tools label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; cursor: pointer; }
-  .log {
-    flex: 1; min-height: 280px; overflow: auto; background: var(--log-bg); color: var(--log-text);
-    border-radius: 8px; padding: 10px 0; font: 12px/1.55 var(--mono);
+  .status-banner.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok-border); }
+  .status-banner.err { background: var(--err-soft); color: var(--err); border: 1px solid var(--err-border); }
+  .status-banner.info { background: var(--accent-soft); color: var(--accent); border: 1px solid #bfdbfe; }
+
+  .progress-track {
+    height: 5px;
+    background: #e2e8f0;
+    border-radius: 99px;
+    overflow: hidden;
+    margin-top: 10px;
   }
-  .ln { display: grid; grid-template-columns: 64px 72px 1fr; gap: 8px; padding: 0 12px; white-space: pre-wrap; word-break: break-word; }
-  .ln:hover { background: rgba(255,255,255,.04); }
-  .ln .t { color: var(--log-muted); }
-  .ln .l { font-weight: 600; }
-  .ln.INFO .l { color: #7fb0ff; }
-  .ln.SUCCESS .l { color: #5fd38d; }
-  .ln.WARNING .l { color: #f0b252; }
-  .ln.WARNING .m { color: #f3d29a; }
-  .ln.ERROR .l, .ln.ERROR .m { color: #ff7b72; }
-  .ln.DEBUG .l { color: var(--log-muted); }
-  .ln.STAGE { background: rgba(164,142,240,.12); }
-  .ln.STAGE .l, .ln.STAGE .m { color: #c3b4ff; font-weight: 600; }
-  .head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .close-btn {
-    border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 7px;
-    padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  .progress-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: #2563eb;
+    transition: width 0.3s ease;
   }
-  .close-btn:hover { color: var(--text, inherit); background: var(--accent-soft); }
-  /* Empty-state 3D pipeline animation */
-  .placeholder { flex-direction: column; gap: 14px; }
-  .viz { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-  .viz-title { font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--accent); }
-  .viz-scene { width: 100%; height: 300px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  .viz-scale { perspective: 1200px; transform-origin: center center; }
-  .viz-plane {
-    --cube: 64px;
-    position: relative; width: 960px; height: 150px; transform-style: preserve-3d;
-    transform: rotateX(60deg) rotateZ(-14deg);
-    border-radius: 18px; border: 1px solid var(--border);
-    background:
-      linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 30px 30px,
-      linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / 30px 30px,
-      var(--panel-2);
-    box-shadow: 0 30px 60px rgba(40, 40, 120, .18);
+  .progress-track.ok .progress-fill { background: var(--ok); }
+  .progress-track.err .progress-fill { background: var(--err); }
+
+  /* Right Panel: Workspace */
+  .workspace-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 20px;
+    min-height: 540px;
+    display: flex;
+    flex-direction: column;
   }
-  .viz-track {
-    position: absolute; left: 70px; right: 50px; top: 73px; height: 4px; border-radius: 4px;
-    background: repeating-linear-gradient(90deg, var(--accent) 0 14px, transparent 14px 26px);
-    opacity: .55; animation: vizFlow 1s linear infinite;
+
+  /* Jobs List Header Toolbar */
+  .jobs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
   }
-  @keyframes vizFlow { to { background-position: 26px 0; } }
-  .viz-cube {
-    position: absolute; top: 43px; width: var(--cube); height: var(--cube); transform-style: preserve-3d;
-    transition: transform .45s cubic-bezier(.3,1.6,.5,1);
+  .jobs-header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-  .viz-cube .cf { position: absolute; inset: 0; border: 1px solid rgba(255,255,255,.35); transition: background .4s; }
-  .viz-cube .cf-top { transform: translateZ(var(--cube)); background: var(--panel); border-color: var(--border); border-radius: 4px;
-    display: flex; align-items: center; justify-content: center; font: 700 12px var(--mono); color: var(--muted); }
-  .viz-cube .cf-front { transform-origin: bottom; transform: rotateX(-90deg); background: #c7c9f3;
-    display: flex; align-items: center; justify-content: center; font: 700 13px var(--mono); color: #3730a3; }
-  .viz-cube .cf-back { transform-origin: top; transform: rotateX(90deg); background: #b9bbec; }
-  .viz-cube .cf-left { transform-origin: left; transform: rotateY(-90deg); background: #aeb1e8; }
-  .viz-cube .cf-right { transform-origin: right; transform: rotateY(90deg); background: #a3a6e2; }
-  .viz-cube.done .cf-top { background: var(--ok); color: #fff; border-color: var(--ok); }
-  .viz-cube.done .cf-front { background: #9fe3c7; color: #065f46; }
-  .viz-cube.done .cf-left, .viz-cube.done .cf-right, .viz-cube.done .cf-back { background: #86d9b6; }
-  .viz-cube.cur { transform: translateZ(14px); }
-  .viz-cube.cur .cf-top { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
-    box-shadow: 0 0 24px 6px rgba(99, 91, 255, .45); }
-  .viz-cube.cur .cf-front { background: #8b85ff; color: #fff; }
-  .viz-cube.cur .cf-left, .viz-cube.cur .cf-right, .viz-cube.cur .cf-back { background: #7a73f5; }
-  .viz-packet {
-    --pk: 28px;
-    position: absolute; left: 0; top: 0; width: var(--pk); height: var(--pk); transform-style: preserve-3d;
-    transition: transform 1s cubic-bezier(.45,0,.25,1), opacity .4s;
+  .jobs-title-text {
+    font-size: 15px;
+    font-weight: 650;
+    color: var(--text-primary);
   }
-  .viz-packet .pk-face { position: absolute; inset: 0; background: var(--accent-2); border: 1px solid rgba(255,255,255,.5); }
-  .viz-packet .pk-top { transform: translateZ(var(--pk)); background: #5eead4; font: 700 7px var(--mono); color: #134e4a;
-    display: flex; align-items: center; justify-content: center; }
-  .viz-packet .pk-front { transform-origin: bottom; transform: rotateX(-90deg); background: #14b8a6; }
-  .viz-packet .pk-back { transform-origin: top; transform: rotateX(90deg); }
-  .viz-packet .pk-left { transform-origin: left; transform: rotateY(-90deg); background: #0d9488; }
-  .viz-packet .pk-right { transform-origin: right; transform: rotateY(90deg); background: #0f766e; }
-  .viz-caption { text-align: center; min-height: 42px; }
-  .viz-caption b { display: block; color: var(--text); font-size: 15px; }
-  .viz-caption span { color: var(--muted); font-size: 13px; }
-  .viz-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-  .viz-steps span {
-    font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted);
-    transition: background .3s, color .3s, border-color .3s;
+  .jobs-count-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: #f1f5f9;
+    padding: 2px 7px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
   }
-  .viz-steps span.done { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
-  .viz-steps span.cur { color: #fff; border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-  .viz-hint { font-size: 13px; color: var(--muted); }
-  @media (prefers-reduced-motion: reduce) {
-    .viz-track { animation: none; }
-    .viz-packet, .viz-cube { transition: none; }
+
+  .jobs-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
   }
-  .placeholder { color: var(--muted); display: flex; align-items: center; justify-content: center; flex: 1; text-align: center; padding: 40px; }
+  .filter-group {
+    display: inline-flex;
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .filter-tab {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .filter-tab:hover { color: var(--text-primary); }
+  .filter-tab.active {
+    background: #ffffff;
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
+  .search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #ffffff;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 0 9px;
+    width: 220px;
+  }
+  .search-wrapper:focus-within {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+  }
+  .search-input {
+    border: none;
+    background: transparent;
+    padding: 6px 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-primary);
+    width: 100%;
+  }
+  .search-input:focus { outline: none; }
+
+  /* Jobs Table / List */
+  .jobs-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    overflow-y: auto;
+  }
+  .job-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 14px;
+    padding: 11px 14px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-left: 3px solid #cbd5e1;
+  }
+  .job-row:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+  }
+  .job-row.running { border-left-color: #2563eb; }
+  .job-row.completed { border-left-color: #059669; }
+  .job-row.failed, .job-row.interrupted { border-left-color: #dc2626; }
+  .job-row.queued { border-left-color: #d97706; }
+  .job-row.active-row {
+    background: #f1f5f9;
+    border-color: #64748b;
+  }
+
+  .job-row-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+  }
+  .job-row-main { min-width: 0; }
+  .job-row-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .job-row-meta {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    display: flex;
+    gap: 12px;
+  }
+  .job-row-progress {
+    min-width: 140px;
+    text-align: right;
+  }
+  .job-row-stage {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+  .job-row-end {
+    text-align: right;
+    min-width: 90px;
+  }
+
+  /* Badges */
+  .status-pill {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2.5px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #f1f5f9;
+    color: var(--text-secondary);
+  }
+  .status-pill.running { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .status-pill.completed { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .status-pill.failed, .status-pill.interrupted { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  .status-pill.queued { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+
+  .live-dot-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: livePulse 1.2s ease-in-out infinite;
+  }
+  @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  /* Empty state */
+  .jobs-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    margin: auto;
+  }
+  .empty-icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 12px;
+    color: var(--text-muted);
+  }
+  .empty-heading {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+  .empty-subtext {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Detail View */
+  .detail-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .detail-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .back-link-btn {
+    border: 1px solid var(--border-strong);
+    background: #ffffff;
+    color: var(--text-primary);
+    padding: 5px 11px;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .back-link-btn:hover { background: #f8fafc; }
+
+  /* Stepper (Matching clean financial platform look) */
+  .stepper-row {
+    display: flex;
+    gap: 4px;
+    margin: 12px 0 16px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .stepper-item {
+    flex: 1;
+    min-width: 85px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    padding-top: 6px;
+    border-top: 3px solid var(--border);
+    white-space: nowrap;
+    transition: all 0.2s ease;
+  }
+  .stepper-item.done {
+    border-top-color: #059669;
+    color: #059669;
+    font-weight: 600;
+  }
+  .stepper-item.current {
+    border-top-color: #2563eb;
+    color: #2563eb;
+    font-weight: 600;
+  }
+  .stepper-item.current.pulse-step {
+    animation: stepBlink 1.4s infinite;
+  }
+  .stepper-item.failed {
+    border-top-color: #dc2626;
+    color: #dc2626;
+    font-weight: 600;
+  }
+  @keyframes stepBlink { 50% { opacity: 0.45; } }
+
+  .meta-chips-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    padding: 9px 12px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .meta-chips-bar strong { color: var(--text-primary); }
+
+  .box-banner {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    margin-bottom: 12px;
+  }
+  .box-banner.err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+  .box-banner.ok { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+
+  /* Terminal Log */
+  .terminal-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .terminal-tabs {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .terminal-tab-btn {
+    border: none;
+    background: #f8fafc;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .terminal-tab-btn:hover { background: #e2e8f0; }
+  .terminal-tab-btn.active {
+    background: #0f172a;
+    color: #ffffff;
+  }
+
+  .terminal-body {
+    flex: 1;
+    min-height: 280px;
+    max-height: 480px;
+    overflow: auto;
+    background: var(--log-bg);
+    color: var(--log-text);
+    border-radius: 6px;
+    padding: 10px 0;
+    font: 11.5px/1.55 var(--mono);
+  }
+  .log-line {
+    display: grid;
+    grid-template-columns: 66px 74px 1fr;
+    gap: 8px;
+    padding: 1px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .log-line:hover { background: rgba(255, 255, 255, 0.05); }
+  .log-line .ts { color: var(--log-muted); font-size: 10.5px; }
+  .log-line .lvl { font-weight: 600; }
+  .log-line.INFO .lvl { color: #60a5fa; }
+  .log-line.SUCCESS .lvl { color: #34d399; }
+  .log-line.WARNING .lvl { color: #fbbf24; }
+  .log-line.WARNING .msg { color: #fef08a; }
+  .log-line.ERROR .lvl, .log-line.ERROR .msg { color: #f87171; }
+  .log-line.STAGE { background: rgba(37, 99, 235, 0.14); }
+  .log-line.STAGE .lvl, .log-line.STAGE .msg { color: #93c5fd; font-weight: 600; }
+
+  /* Pagination Bar */
+  .pager-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 12px;
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .pager-btn {
+    border: 1px solid var(--border-strong);
+    background: #ffffff;
+    color: var(--text-primary);
+    padding: 4px 11px;
+    border-radius: 5px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .pager-btn:hover:not(:disabled) { background: #f8fafc; }
+  .pager-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 </head>
 <body>
+
 <header>
-  <div>
-    <h1>Ingestion Console</h1>
-    <div class="sub">Upload Excel / CSV files and watch every ingestion stage live</div>
+  <div class="header-brand">
+    <div class="brand-logo">DMI</div>
+    <div>
+      <div class="brand-title">Data Modelling &amp; Ingestion Console</div>
+      <div class="brand-subtitle">Automated Financial Ingestion Platform</div>
+    </div>
   </div>
-  <div class="conn"><span id="connDot" class="dot"></span><span id="connText">Connecting…</span></div>
+  <div class="header-status">
+    <span id="connDot" class="status-dot"></span>
+    <span id="connText">Connecting…</span>
+  </div>
 </header>
 
 <main>
-  <div class="col">
-    <form class="card" id="uploadForm" autocomplete="off">
-      <h2>New ingestion</h2>
-      <label class="field"><span>Tenant ID</span><input type="text" id="tenantId" placeholder="e.g. DM00005" required maxlength="64"></label>
-      <label class="field"><span>Org ID</span><input type="text" id="orgId" placeholder="e.g. OM0000000002" required maxlength="64"></label>
-      <div class="drop" id="drop" tabindex="0">
-        <strong id="dropName">Drop a file here or click to choose</strong>
-        <small id="dropHint">.xlsx, .xls, .csv · max 5 MB</small>
+  <!-- Left Side: Ingestion Control Card -->
+  <div class="card">
+    <div class="tab-nav">
+      <button type="button" class="tab-btn active" id="tabManual">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        Manual Ingestion
+      </button>
+      <button type="button" class="tab-btn" id="tabTable">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="9" x2="9" y2="21"></line><line x1="15" y1="9" x2="15" y2="21"></line></svg>
+        Table Ingestion
+      </button>
+    </div>
+
+    <!-- Manual (File) Ingestion Form -->
+    <form id="manualForm" autocomplete="off">
+      <div class="form-heading">
+        <span>Upload Workbooks</span>
       </div>
-      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
-      <button class="primary" id="submitBtn" type="submit">Upload &amp; ingest</button>
-      <div class="bar" id="uploadBar" hidden><i></i></div>
-      <div class="msg" id="formMsg" hidden></div>
+      <div class="form-group">
+        <label class="form-label">Tenant ID</label>
+        <input type="text" class="form-control" id="manualTenantId" placeholder="e.g. DM00005" required maxlength="64">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Org ID</label>
+        <input type="text" class="form-control" id="manualOrgId" placeholder="e.g. OM0000000002" required maxlength="64">
+      </div>
+
+      <!-- Multi-File Dropzone -->
+      <div class="form-group">
+        <label class="form-label">Files</label>
+        <div class="drop-box" id="dropZone" tabindex="0">
+          <svg class="drop-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <div class="drop-primary-text" id="dropPrompt">Click to choose or drop files here</div>
+          <div class="drop-secondary-text">Excel (.xlsx, .xls) or CSV · Up to 5 MB each</div>
+        </div>
+        <input type="file" id="multiFileInput" accept=".xlsx,.xls,.csv" multiple hidden>
+      </div>
+
+      <!-- File Queue Chips -->
+      <div class="files-queue" id="selectedFilesList" hidden></div>
+
+      <button class="btn-submit" id="manualSubmitBtn" type="submit" disabled>Upload &amp; Ingest</button>
+      <div class="progress-track" id="manualProgressBar" hidden><i class="progress-fill"></i></div>
+      <div class="status-banner" id="manualMsg" hidden></div>
     </form>
 
-    <section class="card jobs">
-      <h2>Jobs <span class="count" id="jobsCount"></span></h2>
-      <div class="jobs-list" id="jobsList"><div class="empty">No ingestions yet</div></div>
-      <div class="pager" id="pager" hidden>
-        <button type="button" id="prevPage">‹ Prev</button>
-        <span id="pageInfo"></span>
-        <button type="button" id="nextPage">Next ›</button>
+    <!-- Table Ingestion Form -->
+    <form id="tableForm" autocomplete="off" hidden>
+      <div class="form-heading">
+        <span>Database Table Ingestion</span>
       </div>
-    </section>
+      <div class="form-group">
+        <label class="form-label">Tenant ID</label>
+        <input type="text" class="form-control" id="tableTenantId" placeholder="e.g. DM00005" required maxlength="64">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Org ID</label>
+        <input type="text" class="form-control" id="tableOrgId" placeholder="e.g. OM0000000002" required maxlength="64">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Table Name</label>
+        <input type="text" class="form-control" id="tableNameInput" placeholder="e.g. bsid_view" required maxlength="64">
+      </div>
+
+      <button class="btn-submit" id="tableSubmitBtn" type="submit">Start Table Ingestion</button>
+      <div class="status-banner" id="tableMsg" hidden></div>
+    </form>
   </div>
 
-  <section class="card detail" id="detail">
-    <div class="placeholder" id="placeholder">
-      <div class="viz" id="viz" aria-hidden="true">
-        <div class="viz-title">How an ingestion runs</div>
-        <div class="viz-scene" id="vizScene">
-          <div class="viz-scale" id="vizScale">
-            <div class="viz-plane" id="vizPlane">
-              <div class="viz-track"></div>
-              <div class="viz-packet" id="vizPacket">
-                <div class="pk-face pk-top">XLSX</div><div class="pk-face pk-front"></div><div class="pk-face pk-back"></div>
-                <div class="pk-face pk-left"></div><div class="pk-face pk-right"></div>
-              </div>
-            </div>
+  <!-- Right Side: Ingestion Jobs Workspace -->
+  <section class="workspace-panel" id="workspace">
+    <!-- View 1: Jobs Overview List -->
+    <div id="jobsOverviewView">
+      <div class="jobs-header">
+        <div class="jobs-header-title">
+          <span class="jobs-title-text">Ingestion Jobs</span>
+          <span class="jobs-count-tag" id="jobsTotalCount">0 total</span>
+        </div>
+
+        <div class="jobs-header-controls">
+          <div class="filter-group" id="statusFilters">
+            <button type="button" class="filter-tab active" data-filter="all">All</button>
+            <button type="button" class="filter-tab" data-filter="running">Running</button>
+            <button type="button" class="filter-tab" data-filter="completed">Completed</button>
+            <button type="button" class="filter-tab" data-filter="failed">Failed</button>
+          </div>
+
+          <div class="search-wrapper">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" class="search-input" id="jobSearchInput" placeholder="Search jobs...">
           </div>
         </div>
-        <div class="viz-caption"><b id="vizStage"></b><span id="vizDesc"></span></div>
-        <div class="viz-steps" id="vizSteps"></div>
       </div>
-      <div class="viz-hint">Click a job on the left to open its live dashboard and log</div>
+
+      <div class="jobs-rows" id="jobsListContainer">
+        <div class="jobs-empty-state">
+          <div class="empty-icon-wrap">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          </div>
+          <div class="empty-heading">No Ingestion Jobs Yet</div>
+          <div class="empty-subtext">Upload files or start a table ingestion to begin.</div>
+        </div>
+      </div>
+
+      <div class="pager-footer" id="pager" hidden>
+        <button type="button" class="pager-btn" id="prevPage">‹ Previous</button>
+        <span id="pageInfo">Page 1 of 1</span>
+        <button type="button" class="pager-btn" id="nextPage">Next ›</button>
+      </div>
     </div>
-    <div id="detailBody" class="detail-body" hidden>
-      <div class="detail-head">
+
+    <!-- View 2: Live Job Detail & Execution Console -->
+    <div id="jobDetailView" class="detail-container" hidden>
+      <div class="detail-topbar">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button type="button" class="back-link-btn" id="btnBackToJobs">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            All Jobs
+          </button>
+          <div>
+            <h2 id="dName" style="font-size:15px; font-weight:650; color:var(--text-primary);">Job Details</h2>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:1px;" id="dSub"></div>
+          </div>
+        </div>
         <div>
-          <h3 id="dName"></h3>
-          <div class="kv" id="dKv"></div>
-        </div>
-        <div class="head-actions">
-          <span class="badge" id="dBadge"></span>
-          <button type="button" class="close-btn" id="closeDetail" title="Close log">Close ✕</button>
+          <span class="status-pill" id="dBadge">STATUS</span>
         </div>
       </div>
-      <div class="stepper" id="stepper"></div>
-      <div class="bar" id="dBar"><i></i></div>
-      <div class="stage-detail" id="dStage" style="margin-top:8px"></div>
-      <div class="errbox" id="dError" hidden></div>
-      <div class="result" id="dResult" hidden></div>
-      <div class="log-tools">
-        <div class="seg" id="filterSeg">
-          <button type="button" data-f="all" class="on">All</button>
-          <button type="button" data-f="stage">Stages</button>
-          <button type="button" data-f="issues">Warnings &amp; errors</button>
+
+      <!-- Stepper -->
+      <div class="stepper-row" id="stepper"></div>
+      <div class="progress-track" id="dBar"><i class="progress-fill"></i></div>
+      <div style="font-size:11.5px; color:var(--text-muted); margin: 7px 0 12px; min-height:16px;" id="dStage"></div>
+
+      <div class="box-banner err" id="dError" hidden></div>
+      <div class="box-banner ok" id="dResult" hidden></div>
+
+      <div class="meta-chips-bar" id="dMetaBox"></div>
+
+      <!-- Live Terminal Log -->
+      <div class="terminal-tools">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:12px; font-weight:600; color:var(--text-primary)">Execution Log</span>
+          <div class="terminal-tabs" id="filterSeg">
+            <button type="button" data-f="all" class="terminal-tab-btn active">All</button>
+            <button type="button" data-f="stage" class="terminal-tab-btn">Stages</button>
+            <button type="button" data-f="issues" class="terminal-tab-btn">Warnings &amp; Errors</button>
+          </div>
         </div>
-        <label><input type="checkbox" id="autoScroll" checked> Auto-scroll</label>
+        <label style="font-size:11.5px; color:var(--text-muted); display:flex; align-items:center; gap:5px; cursor:pointer;">
+          <input type="checkbox" id="autoScroll" checked> Auto-scroll
+        </label>
       </div>
-      <div class="log" id="log"></div>
+
+      <div class="terminal-body" id="log"></div>
     </div>
   </section>
 </main>
@@ -381,6 +959,7 @@
 <script>
 (function () {
   "use strict";
+
   var MAX_BYTES = 5 * 1024 * 1024;
   var ALLOWED = [".xlsx", ".xls", ".csv"];
   var STEPS = ["QUEUED", "READING_FILE", "AI_CLASSIFICATION", "PROCESS_METADATA", "THEME_MAPPING", "UPSERT", "EXPORT", "COMPLETED"];
@@ -389,122 +968,331 @@
     PROCESS_METADATA: "Process", THEME_MAPPING: "Theme map", UPSERT: "Upsert", EXPORT: "Export", COMPLETED: "Done"
   };
   var MAX_LOG_LINES = 5000;
-  // API base derived from where this page is served: "/dashboard" -> "/api/",
-  // "/data-model-ingestion/dashboard" (behind the reverse proxy) -> "/data-model-ingestion/api/".
   var API = location.pathname.replace(/\/dashboard\/?$/, "") + "/api/";
 
   var $ = function (id) { return document.getElementById(id); };
+
   var jobs = {};
   var selectedId = null;
   var jobES = null;
-  var selectedFile = null;
+  var selectedFiles = [];
   var logFilter = "all";
-  var PAGE_SIZE = 6;
+  var statusFilter = "all";
+  var searchQuery = "";
+  var PAGE_SIZE = 8;
   var page = 1;
 
   function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   function load(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
 
-  // ---------------- Upload form ----------------
-  $("tenantId").value = load("ingest.tenant");
-  $("orgId").value = load("ingest.org");
+  // Clear tenant & org fields so only the user types their values
+  try {
+    localStorage.removeItem("ingest.tenant");
+    localStorage.removeItem("ingest.org");
+  } catch (e) {}
+  $("manualTenantId").value = "";
+  $("manualOrgId").value = "";
+  $("tableTenantId").value = "";
+  $("tableOrgId").value = "";
+
+  // Tabs Switcher
+  $("tabManual").addEventListener("click", function () {
+    $("tabManual").classList.add("active");
+    $("tabTable").classList.remove("active");
+    $("manualForm").hidden = false;
+    $("tableForm").hidden = true;
+  });
+
+  $("tabTable").addEventListener("click", function () {
+    $("tabTable").classList.add("active");
+    $("tabManual").classList.remove("active");
+    $("tableForm").hidden = false;
+    $("manualForm").hidden = true;
+  });
 
   function fmtBytes(n) {
-    if (n == null) return "";
+    if (n == null || isNaN(n)) return "";
     if (n < 1024) return n + " B";
     if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
     return (n / 1048576).toFixed(2) + " MB";
   }
-  function showMsg(text, kind) {
-    var m = $("formMsg");
-    m.textContent = text; m.className = "msg " + kind; m.hidden = false;
+
+  function showMsg(elId, text, kind) {
+    var m = $(elId);
+    m.textContent = text;
+    m.className = "status-banner " + kind;
+    m.hidden = false;
   }
-  function validateFile(f) {
-    if (!f) return "Choose a file to upload.";
-    var name = f.name.toLowerCase();
-    var ok = ALLOWED.some(function (ext) { return name.slice(-ext.length) === ext; });
-    if (!ok) return "Unsupported file type. Allowed: " + ALLOWED.join(", ");
-    if (f.size === 0) return "File is empty.";
-    if (f.size > MAX_BYTES) return "File is " + fmtBytes(f.size) + ". Maximum allowed size is 5 MB.";
-    return null;
-  }
-  function pickFile(f) {
-    selectedFile = f || null;
-    $("formMsg").hidden = true;
-    if (!f) { $("dropName").textContent = "Drop a file here or click to choose"; $("dropHint").textContent = ".xlsx, .xls, .csv · max 5 MB"; return; }
-    $("dropName").textContent = f.name;
-    var err = validateFile(f);
-    $("dropHint").textContent = fmtBytes(f.size) + (err ? "" : " · ready");
-    if (err) showMsg(err, "err");
-  }
-  var drop = $("drop");
-  drop.addEventListener("click", function () { $("fileInput").click(); });
-  drop.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } });
-  $("fileInput").addEventListener("change", function (e) { pickFile(e.target.files[0]); });
+
+  // ---------------- Multiple File Handling ----------------
+  var dropZone = $("dropZone");
+  var multiFileInput = $("multiFileInput");
+  var selectedFilesList = $("selectedFilesList");
+  var manualSubmitBtn = $("manualSubmitBtn");
+
+  dropZone.addEventListener("click", function () { multiFileInput.click(); });
+  dropZone.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); multiFileInput.click(); }
+  });
+
   ["dragenter", "dragover"].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+    dropZone.addEventListener(ev, function (e) { e.preventDefault(); dropZone.classList.add("drag-over"); });
   });
   ["dragleave", "drop"].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+    dropZone.addEventListener(ev, function (e) { e.preventDefault(); dropZone.classList.remove("drag-over"); });
   });
-  drop.addEventListener("drop", function (e) { if (e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]); });
 
-  $("uploadForm").addEventListener("submit", function (e) {
+  dropZone.addEventListener("drop", function (e) {
     e.preventDefault();
-    var tenant = $("tenantId").value.trim();
-    var org = $("orgId").value.trim();
-    if (!tenant || !org) { showMsg("Tenant ID and Org ID are required.", "err"); return; }
-    var err = validateFile(selectedFile);
-    if (err) { showMsg(err, "err"); return; }
-    store("ingest.tenant", tenant); store("ingest.org", org);
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      addFiles(e.dataTransfer.files);
+    }
+  });
 
-    var fd = new FormData();
-    fd.append("tenant_id", tenant);
-    fd.append("org_id", org);
-    fd.append("file", selectedFile);
+  multiFileInput.addEventListener("change", function (e) {
+    if (e.target.files && e.target.files.length) {
+      addFiles(e.target.files);
+    }
+  });
 
-    var btn = $("submitBtn"), bar = $("uploadBar");
-    btn.disabled = true; btn.textContent = "Uploading…";
-    bar.hidden = false; bar.className = "bar"; bar.firstElementChild.style.width = "0%";
-    $("formMsg").hidden = true;
+  function validateSingleFile(f) {
+    var name = f.name.toLowerCase();
+    var ok = ALLOWED.some(function (ext) { return name.slice(-ext.length) === ext; });
+    if (!ok) return f.name + ": Unsupported extension. Allowed: " + ALLOWED.join(", ");
+    if (f.size === 0) return f.name + ": File is empty.";
+    if (f.size > MAX_BYTES) return f.name + " (" + fmtBytes(f.size) + ") exceeds max size of 5 MB.";
+    return null;
+  }
+
+  function addFiles(fileList) {
+    $("manualMsg").hidden = true;
+    var errs = [];
+    for (var i = 0; i < fileList.length; i++) {
+      var f = fileList[i];
+      var err = validateSingleFile(f);
+      if (err) {
+        errs.push(err);
+      } else {
+        var already = selectedFiles.some(function (ex) { return ex.name === f.name && ex.size === f.size; });
+        if (!already) selectedFiles.push(f);
+      }
+    }
+    if (errs.length) showMsg("manualMsg", errs.join(" | "), "err");
+    renderFileList();
+  }
+
+  function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    renderFileList();
+  }
+
+  function renderFileList() {
+    selectedFilesList.innerHTML = "";
+    if (!selectedFiles.length) {
+      selectedFilesList.hidden = true;
+      $("dropPrompt").textContent = "Click to choose or drop files here";
+      manualSubmitBtn.disabled = true;
+      manualSubmitBtn.textContent = "Upload & Ingest";
+      return;
+    }
+
+    selectedFilesList.hidden = false;
+    $("dropPrompt").textContent = selectedFiles.length + " file(s) ready to ingest";
+    manualSubmitBtn.disabled = false;
+    manualSubmitBtn.textContent = "Upload & Ingest (" + selectedFiles.length + " File" + (selectedFiles.length > 1 ? "s" : "") + ")";
+
+    selectedFiles.forEach(function (f, idx) {
+      var item = document.createElement("div");
+      item.className = "file-item";
+
+      var left = document.createElement("div");
+      left.className = "file-item-left";
+
+      var ext = (f.name.split(".").pop() || "FILE").toUpperCase();
+      var tag = document.createElement("span");
+      tag.className = "file-ext-tag";
+      tag.textContent = ext;
+
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "file-item-name";
+      nameSpan.textContent = f.name;
+      nameSpan.title = f.name;
+
+      left.appendChild(tag);
+      left.appendChild(nameSpan);
+
+      var right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.alignItems = "center";
+      right.style.gap = "8px";
+
+      var sizeSpan = document.createElement("span");
+      sizeSpan.className = "file-item-size";
+      sizeSpan.textContent = fmtBytes(f.size);
+      right.appendChild(sizeSpan);
+
+      var rmBtn = document.createElement("button");
+      rmBtn.type = "button";
+      rmBtn.className = "file-remove-btn";
+      rmBtn.textContent = "✕";
+      rmBtn.title = "Remove";
+      rmBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        removeFile(idx);
+      });
+      right.appendChild(rmBtn);
+
+      item.appendChild(left);
+      item.appendChild(right);
+      selectedFilesList.appendChild(item);
+    });
+  }
+
+  // ---------------- Manual Ingestion Submission ----------------
+  $("manualForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var tenant = $("manualTenantId").value.trim();
+    var org = $("manualOrgId").value.trim();
+    if (!tenant || !org) { showMsg("manualMsg", "Tenant ID and Org ID are required.", "err"); return; }
+    if (!selectedFiles.length) { showMsg("manualMsg", "Please select at least one file to upload.", "err"); return; }
+
+    var btn = manualSubmitBtn;
+    var bar = $("manualProgressBar");
+    btn.disabled = true;
+    bar.hidden = false;
+    bar.className = "progress-track";
+    bar.firstElementChild.style.width = "0%";
+    showMsg("manualMsg", "Queueing " + selectedFiles.length + " file(s)...", "info");
+
+    var queue = selectedFiles.slice();
+    var totalFiles = queue.length;
+    var successCount = 0;
+    var failedCount = 0;
+    var lastJobId = null;
+
+    function uploadNext() {
+      if (!queue.length) {
+        btn.disabled = false;
+        bar.className = (failedCount === 0 ? "progress-track ok" : "progress-track err");
+        bar.firstElementChild.style.width = "100%";
+        var resText = "Done: " + successCount + " queued successfully.";
+        if (failedCount > 0) resText += " (" + failedCount + " failed)";
+        showMsg("manualMsg", resText, failedCount === 0 ? "ok" : "err");
+        selectedFiles = [];
+        renderFileList();
+        multiFileInput.value = "";
+        if (lastJobId) selectJob(lastJobId);
+        return;
+      }
+
+      var currentFile = queue.shift();
+      var currentIdx = totalFiles - queue.length;
+      btn.textContent = "Uploading " + currentIdx + "/" + totalFiles + "...";
+
+      var fd = new FormData();
+      fd.append("tenant_id", tenant);
+      fd.append("org_id", org);
+      fd.append("file", currentFile);
+
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", API + "ingest/upload");
+      xhr.upload.onprogress = function (ev) {
+        if (ev.lengthComputable) {
+          var pct = Math.round(((currentIdx - 1 + (ev.loaded / ev.total)) / totalFiles) * 100);
+          bar.firstElementChild.style.width = pct + "%";
+        }
+      };
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          successCount++;
+          try {
+            var body = JSON.parse(xhr.responseText);
+            lastJobId = body.job_id;
+            upsertJob({
+              job_id: body.job_id,
+              file_name: currentFile.name,
+              status: "queued",
+              stage: "QUEUED",
+              progress: 0,
+              tenant_id: tenant,
+              org_id: org,
+              created_at: new Date().toISOString()
+            }, true);
+          } catch (x) {}
+        } else {
+          failedCount++;
+        }
+        uploadNext();
+      };
+      xhr.onerror = function () {
+        failedCount++;
+        uploadNext();
+      };
+      xhr.send(fd);
+    }
+
+    uploadNext();
+  });
+
+  // ---------------- Table Ingestion Submission ----------------
+  $("tableForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var tenant = $("tableTenantId").value.trim();
+    var org = $("tableOrgId").value.trim();
+    var tableName = $("tableNameInput").value.trim();
+
+    if (!tenant || !org || !tableName) {
+      showMsg("tableMsg", "Tenant ID, Org ID, and Table Name are required.", "err");
+      return;
+    }
+
+    var btn = $("tableSubmitBtn");
+    btn.disabled = true;
+    btn.textContent = "Starting Ingestion…";
+    showMsg("tableMsg", "Queueing table ingestion for '" + tableName + "'...", "info");
 
     var xhr = new XMLHttpRequest();
-    xhr.open("POST", API + "ingest/upload");
-    xhr.upload.onprogress = function (ev) {
-      if (ev.lengthComputable) bar.firstElementChild.style.width = Math.round(ev.loaded / ev.total * 100) + "%";
-    };
+    xhr.open("POST", API + "ingest/table-job");
+    xhr.setRequestHeader("Content-Type", "application/json");
     xhr.onload = function () {
-      btn.disabled = false; btn.textContent = "Upload & ingest";
+      btn.disabled = false;
+      btn.textContent = "Start Table Ingestion";
       var body = {};
       try { body = JSON.parse(xhr.responseText); } catch (x) {}
+
       if (xhr.status >= 200 && xhr.status < 300) {
-        bar.className = "bar ok"; bar.firstElementChild.style.width = "100%";
-        showMsg("Queued as " + body.job_id, "ok");
-        pickFile(null); $("fileInput").value = "";
-        $("formMsg").hidden = false;
-        page = 1;                                   // new job is on top of page 1
-        upsertJob({ job_id: body.job_id, file_name: "", status: "queued", stage: "QUEUED", progress: 0, tenant_id: tenant, org_id: org, created_at: new Date().toISOString() }, true);
+        showMsg("tableMsg", "Table ingestion queued: " + body.job_id, "ok");
+        upsertJob({
+          job_id: body.job_id,
+          file_name: "Table: " + tableName,
+          status: "queued",
+          stage: "QUEUED",
+          progress: 0,
+          tenant_id: tenant,
+          org_id: org,
+          created_at: new Date().toISOString()
+        }, true);
         selectJob(body.job_id);
       } else {
-        bar.className = "bar err"; bar.firstElementChild.style.width = "100%";
         var detail = body.detail;
         if (Array.isArray(detail)) detail = detail.map(function (d) { return d.msg; }).join("; ");
-        showMsg(detail || ("Upload failed (HTTP " + xhr.status + ")"), "err");
+        showMsg("tableMsg", detail || ("Failed (HTTP " + xhr.status + ")"), "err");
       }
     };
     xhr.onerror = function () {
-      btn.disabled = false; btn.textContent = "Upload & ingest";
-      bar.className = "bar err";
-      showMsg("Network error while uploading.", "err");
+      btn.disabled = false;
+      btn.textContent = "Start Table Ingestion";
+      showMsg("tableMsg", "Network error while triggering table ingestion.", "err");
     };
-    xhr.send(fd);
+    xhr.send(JSON.stringify({ tenant_id: tenant, org_id: org, table_name: tableName }));
   });
 
-  // ---------------- Jobs list (global SSE) ----------------
+  // ---------------- Jobs Workspace Streaming & Rendering ----------------
   function setConn(state) {
-    $("connDot").className = "dot " + (state === "live" ? "live" : state === "down" ? "down" : "");
-    $("connText").textContent = state === "live" ? "Live" : state === "down" ? "Reconnecting…" : "Connecting…";
+    $("connDot").className = "status-dot " + (state === "live" ? "live" : state === "down" ? "down" : "");
+    $("connText").textContent = state === "live" ? "Live Connected" : state === "down" ? "Reconnecting…" : "Connecting…";
   }
+
   function upsertJob(j, onlyIfMissing) {
     if (!j || !j.job_id) return;
     if (onlyIfMissing && jobs[j.job_id]) return;
@@ -512,6 +1300,7 @@
     renderJobs();
     if (j.job_id === selectedId) renderDetail();
   }
+
   var globalES = new EventSource(API + "jobs/stream");
   globalES.onopen = function () { setConn("live"); };
   globalES.onerror = function () { setConn("down"); };
@@ -519,7 +1308,7 @@
     var data = JSON.parse(e.data);
     (data.jobs || []).forEach(function (j) { jobs[j.job_id] = Object.assign(jobs[j.job_id] || {}, j); });
     renderJobs();
-    if (selectedId) renderDetail();          // nothing is opened on page load; click a job to see its log
+    if (selectedId) renderDetail();
   });
   globalES.addEventListener("job", function (e) { upsertJob(JSON.parse(e.data)); });
 
@@ -534,68 +1323,154 @@
     var d = parseTs(s); if (!d || isNaN(d)) return "";
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
+
   function stageText(j) {
     if (j.status === "completed") return "Completed";
     if (j.status === "failed") return "Failed";
     if (j.status === "interrupted") return "Interrupted";
     var t = STEP_LABEL[j.stage] || j.stage || "";
     if (j.sheet_index && j.total_sheets && ["AI_CLASSIFICATION", "PROCESS_METADATA", "THEME_MAPPING", "UPSERT"].indexOf(j.stage) >= 0) {
-      t += " · " + j.sheet_index + "/" + j.total_sheets;
+      t += " (" + j.sheet_index + "/" + j.total_sheets + ")";
     }
     return t;
   }
-  function barClass(j) { return "bar" + (j.status === "completed" ? " ok" : (j.status === "failed" || j.status === "interrupted") ? " err" : ""); }
+
+  // Filter Buttons
+  $("statusFilters").addEventListener("click", function (e) {
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    statusFilter = btn.dataset.filter;
+    Array.prototype.forEach.call(this.children, function (b) { b.classList.toggle("active", b === btn); });
+    page = 1;
+    renderJobs();
+  });
+
+  $("jobSearchInput").addEventListener("input", function (e) {
+    searchQuery = (e.target.value || "").trim().toLowerCase();
+    page = 1;
+    renderJobs();
+  });
 
   function renderJobs() {
-    var list = $("jobsList");
-    var arr = Object.keys(jobs).map(function (k) { return jobs[k]; })
+    var container = $("jobsListContainer");
+    var allArr = Object.keys(jobs).map(function (k) { return jobs[k]; })
       .sort(function (a, b) { return (b.created_at || "").localeCompare(a.created_at || ""); });
-    $("jobsCount").textContent = arr.length ? arr.length + " total" : "";
-    if (!arr.length) { list.innerHTML = '<div class="empty">No ingestions yet</div>'; $("pager").hidden = true; return; }
-    var pages = Math.max(1, Math.ceil(arr.length / PAGE_SIZE));
+
+    $("jobsTotalCount").textContent = allArr.length + " total";
+
+    var filtered = allArr.filter(function (j) {
+      if (statusFilter !== "all" && j.status !== statusFilter) return false;
+      if (searchQuery) {
+        var str = ((j.file_name || "") + " " + (j.job_id || "") + " " + (j.tenant_id || "") + " " + (j.org_id || "")).toLowerCase();
+        if (str.indexOf(searchQuery) === -1) return false;
+      }
+      return true;
+    });
+
+    if (!filtered.length) {
+      container.innerHTML = '<div class="jobs-empty-state"><div class="empty-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div><div class="empty-heading">No Ingestion Jobs Found</div><div class="empty-subtext">No jobs match your current search or filter criteria.</div></div>';
+      $("pager").hidden = true;
+      return;
+    }
+
+    var pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     if (page > pages) page = pages;
     $("pager").hidden = pages <= 1;
     $("pageInfo").textContent = "Page " + page + " of " + pages;
     $("prevPage").disabled = page <= 1;
     $("nextPage").disabled = page >= pages;
-    list.textContent = "";
-    arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).forEach(function (j) {
-      var el = document.createElement("div");
-      el.className = "job " + (j.status || "") + (j.job_id === selectedId ? " sel" : "");
-      el.dataset.id = j.job_id;
 
-      var r1 = document.createElement("div"); r1.className = "row1";
-      var nm = document.createElement("div"); nm.className = "name"; nm.textContent = j.file_name || j.job_id; nm.title = j.file_name || "";
-      var bd = document.createElement("span"); bd.className = "badge " + (j.status || ""); bd.textContent = stageText(j);
-      r1.appendChild(nm); r1.appendChild(bd);
+    container.textContent = "";
+    filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).forEach(function (j) {
+      var row = document.createElement("div");
+      row.className = "job-row " + (j.status || "") + (j.job_id === selectedId ? " active-row" : "");
+      row.dataset.id = j.job_id;
 
-      var meta = document.createElement("div"); meta.className = "meta";
-      var left = document.createElement("span"); left.textContent = (j.tenant_id || "") + " · " + (j.org_id || "");
-      var right = document.createElement("span"); right.className = "dur"; right.textContent = duration(j) || timeOnly(j.created_at);
-      meta.appendChild(left); meta.appendChild(right);
+      var isTable = (j.file_name || "").startsWith("Table:") || (j.file_path || "").startsWith("table://");
+      var icon = document.createElement("div");
+      icon.className = "job-row-icon";
+      icon.innerHTML = isTable
+        ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="9" x2="9" y2="21"></line><line x1="15" y1="9" x2="15" y2="21"></line></svg>'
+        : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>';
 
-      var bar = document.createElement("div"); bar.className = barClass(j);
-      var fill = document.createElement("i"); fill.style.width = (j.status === "failed" || j.status === "interrupted" ? 100 : (j.progress || 0)) + "%";
-      bar.appendChild(fill);
+      var mainCol = document.createElement("div");
+      mainCol.className = "job-row-main";
 
-      el.appendChild(r1); el.appendChild(meta); el.appendChild(bar);
-      el.addEventListener("click", function () { selectJob(j.job_id); });
-      list.appendChild(el);
+      var title = document.createElement("div");
+      title.className = "job-row-title";
+      title.textContent = j.file_name || j.job_id;
+      title.title = j.file_name || "";
+
+      var meta = document.createElement("div");
+      meta.className = "job-row-meta";
+      meta.innerHTML = '<span><b>ID:</b> ' + j.job_id.slice(-8) + '</span>' +
+                        '<span><b>Tenant:</b> ' + (j.tenant_id || "-") + '</span>' +
+                        '<span><b>Org:</b> ' + (j.org_id || "-") + '</span>' +
+                        (j.file_size ? '<span>' + fmtBytes(j.file_size) + '</span>' : '');
+
+      mainCol.appendChild(title);
+      mainCol.appendChild(meta);
+
+      var progCol = document.createElement("div");
+      progCol.className = "job-row-progress";
+
+      var stageLbl = document.createElement("div");
+      stageLbl.className = "job-row-stage";
+      stageLbl.textContent = stageText(j);
+
+      var track = document.createElement("div");
+      track.className = "progress-track" + (j.status === "completed" ? " ok" : (j.status === "failed" || j.status === "interrupted") ? " err" : "");
+      var fill = document.createElement("i");
+      fill.className = "progress-fill";
+      fill.style.width = (j.status === "failed" || j.status === "interrupted" ? 100 : (j.progress || 0)) + "%";
+      track.appendChild(fill);
+
+      progCol.appendChild(stageLbl);
+      progCol.appendChild(track);
+
+      var endCol = document.createElement("div");
+      endCol.className = "job-row-end";
+
+      var pill = document.createElement("span");
+      pill.className = "status-pill " + (j.status || "");
+      if (j.status === "running") pill.innerHTML = '<span class="live-dot-pulse"></span> RUNNING';
+      else pill.textContent = (j.status || "").toUpperCase();
+
+      var dur = document.createElement("div");
+      dur.style.fontSize = "11px";
+      dur.style.color = "var(--text-muted)";
+      dur.style.marginTop = "4px";
+      dur.textContent = duration(j) || timeOnly(j.created_at);
+
+      endCol.appendChild(pill);
+      endCol.appendChild(dur);
+
+      row.appendChild(icon);
+      row.appendChild(mainCol);
+      row.appendChild(progCol);
+      row.appendChild(endCol);
+
+      row.addEventListener("click", function () {
+        selectJob(j.job_id);
+      });
+
+      container.appendChild(row);
     });
   }
 
   $("prevPage").addEventListener("click", function () { if (page > 1) { page--; renderJobs(); } });
   $("nextPage").addEventListener("click", function () { page++; renderJobs(); });
 
-  // ---------------- Job detail + live log ----------------
+  // ---------------- Detailed View & Live Execution Console ----------------
   function selectJob(id) {
     if (!id) return;
-    if (id === selectedId && jobES) return;
     selectedId = id;
     if (jobES) { jobES.close(); jobES = null; }
+
     $("log").textContent = "";
-    $("placeholder").hidden = true;
-    $("detailBody").hidden = false;
+    $("jobsOverviewView").hidden = true;
+    $("jobDetailView").hidden = false;
+
     renderJobs();
     renderDetail();
 
@@ -611,87 +1486,104 @@
     es.addEventListener("done", function () { es.close(); if (jobES === es) jobES = null; });
   }
 
-  function closeDetail() {
+  function backToJobs() {
     if (jobES) { jobES.close(); jobES = null; }
     selectedId = null;
-    $("log").textContent = "";
-    $("detailBody").hidden = true;
-    $("placeholder").hidden = false;
+    $("jobDetailView").hidden = true;
+    $("jobsOverviewView").hidden = false;
     renderJobs();
   }
-  $("closeDetail").addEventListener("click", closeDetail);
+  $("btnBackToJobs").addEventListener("click", backToJobs);
 
   function appendLog(ev) {
     var log = $("log");
     var ln = document.createElement("div");
-    ln.className = "ln " + (ev.level || "INFO");
+    ln.className = "log-line " + (ev.level || "INFO");
     ln.dataset.level = ev.level || "INFO";
-    var t = document.createElement("span"); t.className = "t"; t.textContent = timeOnly(ev.ts);
-    var l = document.createElement("span"); l.className = "l"; l.textContent = ev.level || "INFO";
-    var m = document.createElement("span"); m.className = "m"; m.textContent = ev.msg;
+
+    var t = document.createElement("span"); t.className = "ts"; t.textContent = timeOnly(ev.ts);
+    var l = document.createElement("span"); l.className = "lvl"; l.textContent = ev.level || "INFO";
+    var m = document.createElement("span"); m.className = "msg"; m.textContent = ev.msg;
+
     ln.appendChild(t); ln.appendChild(l); ln.appendChild(m);
     ln.hidden = !passesFilter(ln.dataset.level);
     log.appendChild(ln);
+
     while (log.childElementCount > MAX_LOG_LINES) log.removeChild(log.firstElementChild);
     if ($("autoScroll").checked) log.scrollTop = log.scrollHeight;
   }
+
   function passesFilter(level) {
     if (logFilter === "all") return true;
     if (logFilter === "stage") return level === "STAGE" || level === "SUCCESS" || level === "ERROR";
     return level === "WARNING" || level === "ERROR";
   }
+
   $("filterSeg").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     logFilter = b.dataset.f;
-    Array.prototype.forEach.call(this.children, function (c) { c.classList.toggle("on", c === b); });
+    Array.prototype.forEach.call(this.children, function (c) { c.classList.toggle("active", c === b); });
     Array.prototype.forEach.call($("log").children, function (ln) { ln.hidden = !passesFilter(ln.dataset.level); });
     if ($("autoScroll").checked) $("log").scrollTop = $("log").scrollHeight;
   });
 
   function kv(label, value) {
     var s = document.createElement("span");
-    s.appendChild(document.createTextNode(label + " "));
-    var b = document.createElement("b"); b.textContent = value; s.appendChild(b);
+    s.appendChild(document.createTextNode(label + ": "));
+    var b = document.createElement("strong"); b.textContent = value; s.appendChild(b);
     return s;
   }
 
   function renderDetail() {
-    var j = jobs[selectedId]; if (!j) return;
+    var j = jobs[selectedId];
+    if (!j) return;
+
     $("dName").textContent = j.file_name || j.job_id;
-    var k = $("dKv"); k.textContent = "";
-    k.appendChild(kv("Job", j.job_id));
-    k.appendChild(kv("Tenant", j.tenant_id || "-"));
-    k.appendChild(kv("Org", j.org_id || "-"));
-    if (j.file_size) k.appendChild(kv("Size", fmtBytes(j.file_size)));
-    if (j.started_at) k.appendChild(kv("Duration", duration(j)));
-    var badge = $("dBadge"); badge.className = "badge " + (j.status || ""); badge.textContent = (j.status || "").toUpperCase();
+    $("dSub").textContent = "Transaction ID: " + j.job_id + " · Created: " + (timeOnly(j.created_at) || "-");
+
+    var mb = $("dMetaBox");
+    mb.innerHTML = "";
+    mb.appendChild(kv("Tenant", j.tenant_id || "-"));
+    mb.appendChild(kv("Organization", j.org_id || "-"));
+    if (j.file_size) mb.appendChild(kv("File Size", fmtBytes(j.file_size)));
+    if (j.started_at) mb.appendChild(kv("Duration", duration(j)));
+
+    var badge = $("dBadge");
+    badge.className = "status-pill " + (j.status || "");
+    if (j.status === "running") badge.innerHTML = '<span class="live-dot-pulse"></span> RUNNING';
+    else badge.textContent = (j.status || "").toUpperCase();
 
     // Stepper
     var failed = j.status === "failed" || j.status === "interrupted";
     var curIdx = STEPS.indexOf(j.stage);
     if (j.status === "completed") curIdx = STEPS.length - 1;
-    var st = $("stepper"); st.textContent = "";
+    var st = $("stepper");
+    st.textContent = "";
+
     STEPS.forEach(function (s, i) {
-      var d = document.createElement("div"); d.className = "step";
+      var d = document.createElement("div");
+      d.className = "stepper-item";
       if (i < curIdx || (j.status === "completed")) d.classList.add("done");
       if (i === curIdx && j.status !== "completed") {
-        d.classList.add(failed ? "fail" : "cur");
-        if (j.status === "running") d.classList.add("pulse");
+        d.classList.add(failed ? "failed" : "current");
+        if (j.status === "running") d.classList.add("pulse-step");
       }
       d.textContent = STEP_LABEL[s];
       st.appendChild(d);
     });
 
-    var bar = $("dBar"); bar.className = barClass(j);
+    var bar = $("dBar");
+    bar.className = "progress-track" + (j.status === "completed" ? " ok" : failed ? " err" : "");
     bar.firstElementChild.style.width = (failed ? 100 : (j.progress || 0)) + "%";
 
-    var sd = $("dStage"); sd.textContent = "";
+    var sd = $("dStage");
+    sd.textContent = "";
     if (j.sheet_index && j.total_sheets && !failed && j.status !== "completed") {
       sd.appendChild(kv("Sheet", j.sheet_index + " of " + j.total_sheets));
-      sd.appendChild(document.createTextNode("  "));
+      sd.appendChild(document.createTextNode(" — "));
     }
     if (j.stage_detail) sd.appendChild(document.createTextNode(j.stage_detail));
-    else if (j.status === "queued") sd.appendChild(document.createTextNode("Waiting for a free worker…"));
+    else if (j.status === "queued") sd.appendChild(document.createTextNode("Queued in background worker pool…"));
 
     var eb = $("dError");
     if (j.error) { eb.textContent = j.error; eb.hidden = false; } else { eb.hidden = true; }
@@ -706,8 +1598,8 @@
       rb.appendChild(document.createTextNode(" · " + (r.total_sheets || 0) + " sheet(s)" + (sheets ? ": " + sheets : "")));
       var files = r.exported_files && typeof r.exported_files === "object" ? Object.values(r.exported_files).filter(Boolean) : [];
       if (files.length) {
-        var f = document.createElement("div"); f.style.marginTop = "4px"; f.style.color = "var(--muted)";
-        f.textContent = "Exports: " + files.join(" | ");
+        var f = document.createElement("div"); f.style.marginTop = "4px"; f.style.color = "var(--text-muted)";
+        f.textContent = "Generated Exports: " + files.join(" | ");
         rb.appendChild(f);
       }
       rb.hidden = false;
@@ -716,75 +1608,14 @@
     }
   }
 
-  // ---------------- Empty-state 3D pipeline animation ----------------
-  var VIZ_DESC = {
-    QUEUED: "File uploaded and queued for a free worker",
-    READING_FILE: "Reading the Excel / CSV sheets and tables",
-    AI_CLASSIFICATION: "AI identifies the statement type and columns",
-    PROCESS_METADATA: "Resolves process code, theme and target table",
-    THEME_MAPPING: "Maps source columns to the theme fields",
-    UPSERT: "Validates and upserts rows into the tenant database",
-    EXPORT: "Writes the processed export files",
-    COMPLETED: "Ingestion finished"
-  };
-  var VIZ_SHORT = ["QUEUE", "READ", "AI", "PROC", "MAP", "UPSERT", "EXPORT", "DONE"];
-  var vizCubes = [], vizChips = [], vizI = -1;
-  var CUBE = 64, GAP = 120, X0 = 38, Y0 = 43, PK = 28;
-  STEPS.forEach(function (s, i) {
-    var c = document.createElement("div"); c.className = "viz-cube"; c.style.left = (X0 + i * GAP) + "px";
-    ["cf-back", "cf-left", "cf-right", "cf-front", "cf-top"].forEach(function (f) {
-      var d = document.createElement("div"); d.className = "cf " + f;
-      if (f === "cf-front") d.textContent = (i < 9 ? "0" : "") + (i + 1);
-      if (f === "cf-top") d.textContent = VIZ_SHORT[i];
-      c.appendChild(d);
-    });
-    $("vizPlane").appendChild(c); vizCubes.push(c);
-    var chip = document.createElement("span"); chip.textContent = STEP_LABEL[s];
-    $("vizSteps").appendChild(chip); vizChips.push(chip);
-  });
-  function vizPacketTo(i, instant) {
-    var p = $("vizPacket");
-    if (instant) p.style.transition = "none";
-    var x = X0 + i * GAP + (CUBE - PK) / 2, y = Y0 + (CUBE - PK) / 2;
-    p.style.transform = "translate3d(" + x + "px," + y + "px," + (CUBE + 16) + "px)";
-    if (instant) { void p.offsetWidth; p.style.transition = ""; }
-  }
-  function vizFit() {
-    var w = $("vizScene").clientWidth;
-    $("vizScale").style.transform = "scale(" + Math.min(1, Math.max(.35, (w - 20) / 1000)) + ")";
-  }
-  function vizTick() {
-    if ($("placeholder").hidden) return;
-    vizI = (vizI + 1) % (STEPS.length + 2);              // two extra ticks: hold on "done", then restart
-    var p = $("vizPacket");
-    if (vizI === 0) { vizPacketTo(0, true); p.style.opacity = 1; }
-    var cur = Math.min(vizI, STEPS.length - 1);
-    if (vizI <= STEPS.length - 1) vizPacketTo(cur);
-    if (vizI === STEPS.length + 1) p.style.opacity = 0;
-    vizCubes.forEach(function (c, i) {
-      var done = i < cur || (vizI >= STEPS.length - 1 && i === STEPS.length - 1);
-      c.className = "viz-cube" + (done ? " done" : i === cur ? " cur" : "");
-      vizChips[i].className = done ? "done" : i === cur ? "cur" : "";
-    });
-    var s = STEPS[cur];
-    $("vizStage").textContent = (cur + 1) + ". " + STEP_LABEL[s];
-    $("vizDesc").textContent = VIZ_DESC[s];
-  }
-  vizFit(); vizTick();
-  window.addEventListener("resize", vizFit);
-  setInterval(vizTick, 1500);
-  $("closeDetail").addEventListener("click", vizFit);
-
-  // Tick running durations
+  // Live timer refresher
   setInterval(function () {
     var running = Object.keys(jobs).some(function (k) { return jobs[k].status === "running"; });
     if (!running) return;
-    Array.prototype.forEach.call(document.querySelectorAll(".job"), function (el) {
-      var j = jobs[el.dataset.id]; if (j && j.status === "running") el.querySelector(".dur").textContent = duration(j);
-    });
-    var sel = jobs[selectedId];
-    if (sel && sel.status === "running") renderDetail();
+    renderJobs();
+    if (selectedId && jobs[selectedId] && jobs[selectedId].status === "running") renderDetail();
   }, 1000);
+
 })();
 </script>
 </body>
