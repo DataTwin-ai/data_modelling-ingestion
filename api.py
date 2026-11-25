@@ -567,6 +567,21 @@ def get_job(job_id: str):
     return job_summary
 
 
+@app.get("/api/jobs/{job_id}/input", tags=["Dashboard"], dependencies=_DASHBOARD_AUTH)
+def download_job_input(job_id: str):
+    """Download the input workbook that was ingested by this job (completed or failed)."""
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    path = job.input_file()
+    if not path:
+        raise HTTPException(status_code=404, detail="The input file for this job is no longer available.")
+    name = job.file_name or os.path.basename(path)
+    if os.path.splitext(name)[1].lower() != os.path.splitext(path)[1].lower():
+        name = os.path.basename(path)
+    return FileResponse(path, filename=name, media_type="application/octet-stream")
+
+
 @app.get("/api/jobs/{job_id}/stream", tags=["Dashboard"], dependencies=_DASHBOARD_AUTH)
 async def stream_job(job_id: str, request: Request, last_id: int = Query(0, ge=0)):
     """
