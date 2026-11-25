@@ -679,6 +679,35 @@
     margin-bottom: 12px;
   }
   .meta-chips-bar strong { color: var(--text-primary); }
+  .meta-chips-bar .input-file {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .meta-chips-bar .input-file-name {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .btn-download {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: 5px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn-download:hover { background: #dbeafe; }
+  .btn-download svg { width: 13px; height: 13px; }
 
   .box-banner {
     padding: 10px 14px;
@@ -1547,6 +1576,26 @@
     mb.appendChild(kv("Organization", j.org_id || "-"));
     if (j.file_size) mb.appendChild(kv("File Size", fmtBytes(j.file_size)));
     if (j.started_at) mb.appendChild(kv("Duration", duration(j)));
+
+    // Input file + download, once the job has finished (completed or failed)
+    var finished = j.status === "completed" || j.status === "failed" || j.status === "interrupted";
+    if (finished && j.input_available) {
+      var box = document.createElement("span");
+      box.className = "input-file";
+      var fileKv = kv("File", j.file_name || "-");
+      fileKv.className = "input-file-name";
+      fileKv.title = j.file_name || "";
+      box.appendChild(fileKv);
+      var dl = document.createElement("a");
+      dl.className = "btn-download";
+      dl.href = API + "jobs/" + encodeURIComponent(j.job_id) + "/input";
+      dl.setAttribute("download", j.file_name || "");
+      dl.title = "Download the input file used for this ingestion";
+      dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+      dl.appendChild(document.createTextNode("Download input file"));
+      box.appendChild(dl);
+      mb.appendChild(box);
+    }
 
     var badge = $("dBadge");
     badge.className = "status-pill " + (j.status || "");

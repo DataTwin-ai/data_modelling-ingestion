@@ -28,6 +28,8 @@ from concurrent.futures import ThreadPoolExecutor
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JOBS_DIR = os.path.join(BASE_DIR, "logs", "jobs")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+# Input files the dashboard may hand back for download (never arbitrary paths)
+INPUT_FILE_EXTENSIONS = {".xlsx", ".xls", ".xlsm", ".csv"}
 
 _config = configparser.ConfigParser(interpolation=None)
 _config.read(os.path.join(BASE_DIR, "config.ini"))
@@ -114,8 +116,17 @@ class Job:
     def meta_path(self):
         return os.path.join(JOBS_DIR, f"{self.job_id}.json")
 
+    def input_file(self):
+        """Path of the workbook this job ingested, if it is still on disk and is a spreadsheet.
+        Table jobs (table://...) and S3 keys have no local input file."""
+        p = str(self.file_path or "")
+        if not p or "://" in p or os.path.splitext(p)[1].lower() not in INPUT_FILE_EXTENSIONS:
+            return None
+        return p if os.path.isfile(p) else None
+
     def summary(self):
         return {
+            "input_available": self.input_file() is not None,
             "job_id": self.job_id,
             "transaction_id": self.transaction_id,
             "tenant_id": self.tenant_id,
