@@ -723,7 +723,7 @@
 
   .jobs-thead {
     display: grid;
-    grid-template-columns: minmax(210px, 1fr) 58px 108px 98px 46px 58px;
+    grid-template-columns: minmax(210px, 1fr) 58px 108px 98px 46px 38px;
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
@@ -750,7 +750,7 @@
 
   .job-row {
     display: grid;
-    grid-template-columns: minmax(210px, 1fr) 58px 108px 98px 46px 58px;
+    grid-template-columns: minmax(210px, 1fr) 58px 108px 98px 46px 38px;
     align-items: center;
     gap: 8px;
     padding: 12px 12px;
@@ -1212,7 +1212,7 @@
   @media (max-width: 1220px) {
     .workspace-grid { grid-template-columns: 320px minmax(0, 1fr); }
     .jobs-thead, .job-row {
-      grid-template-columns: minmax(150px, 1fr) 60px 104px 98px 48px 56px;
+      grid-template-columns: minmax(150px, 1fr) 60px 104px 98px 48px 36px;
     }
   }
 
@@ -2134,17 +2134,6 @@
         });
         actionsCell.appendChild(dlBtn);
       }
-
-      var moreBtn = document.createElement("button");
-      moreBtn.type = "button";
-      moreBtn.className = "row-action-btn";
-      moreBtn.title = "View job details & execution logs";
-      moreBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>';
-      moreBtn.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-        selectJob(j.job_id);
-      });
-      actionsCell.appendChild(moreBtn);
 
       row.appendChild(fileCell);
       row.appendChild(sizeCell);
