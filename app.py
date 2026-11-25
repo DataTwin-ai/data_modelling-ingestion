@@ -4196,6 +4196,107 @@ def assign_context_ids(conn, table_name, res, org_id, prefix=CONTEXT_ID_PREFIX):
     return res
 
 
+PA_LINK_TABLE = "active_bt3h"     # caller-routed (SAP) rows that carry the payment advice's context ID
+PA_SOURCE_TABLE = "active_pa"
+
+
+def link_payment_advice(conn, table_name, res, tenant_id, org_id, data_key=None):
+    """
+    LinkRef1 of caller-routed (SAP) BT3H rows = GroupTransactionRef of the payment advice (active_pa)
+    with the same orgid + documentnumber. Filled only when such a payment advice exists (otherwise it
+    stays null), and a LinkRef1 that already has a value is never replaced:
+      1. stored rows of the same source (data_key, e.g. table://dm00005/active_bsad_delta) and org with an
+         empty linkref1 are filled - covers a payment advice that arrives after the SAP row, also for
+         rows that are not in this delta;
+      2. incoming rows keep their own or their stored linkref1, otherwise take the payment advice's ID,
+         so the upsert never blanks a stored value.
+    """
+    if str(table_name).lower() != PA_LINK_TABLE or res is None or res.empty or not org_id:
+        return res
+    cols = {str(c).lower(): c for c in res.columns}
+    if "documentnumber" not in cols:
+        return res
+
+    def _txt(v):
+        if v is None or (not isinstance(v, str) and pd.isna(v)):
+            return ""
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v).strip()
+
+    docs = sorted({_txt(v) for v in res[cols["documentnumber"]]} - {""})
+    if not docs:
+        return res
+    try:
+        with conn.cursor() as cur:
+            table_cols = {}
+            for tbl in (PA_LINK_TABLE, PA_SOURCE_TABLE):
+                cur.execute("SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = current_schema() AND table_name = %s", (tbl,))
+                table_cols[tbl] = {r[0] for r in cur.fetchall()}
+            if not ({"linkref1", "documentnumber", "orgid"} <= table_cols[PA_LINK_TABLE]
+                    and {"grouptransactionref", "documentnumber", "orgid"} <= table_cols[PA_SOURCE_TABLE]):
+                return res
+            # Payment advice rows may carry no tenant_id: accept those along with the tenant's own
+            pa_tenant = (f"(tenant_id = '{sql_tenant_literal(tenant_id)}' OR coalesce(tenant_id, '') = '') AND "
+                         if SHARED_SCHEMA else "")
+            pa_ids = (f"SELECT orgid, documentnumber, min(grouptransactionref) AS gtr FROM {PA_SOURCE_TABLE} "
+                      f"WHERE {pa_tenant}orgid = %s AND coalesce(grouptransactionref, '') <> '' "
+                      f"GROUP BY orgid, documentnumber")
+
+            # 1. Stored rows of this source and org still without a link
+            n_backfilled = 0
+            if data_key and "input" in table_cols[PA_LINK_TABLE]:
+                touch = ", modifieddatetime = now()" if "modifieddatetime" in table_cols[PA_LINK_TABLE] else ""
+                cur.execute(
+                    f"UPDATE {PA_LINK_TABLE} b SET linkref1 = p.gtr{touch} FROM ({pa_ids}) p "
+                    f"WHERE {tenant_filter(tenant_id, 'b')}b.input = %s AND b.orgid = p.orgid "
+                    f"AND b.documentnumber = p.documentnumber AND coalesce(b.linkref1, '') = ''",
+                    (org_id, str(data_key)),
+                )
+                n_backfilled = cur.rowcount
+
+            # 2. Payment advice IDs and already stored links for the incoming documents
+            cur.execute(f"SELECT documentnumber, gtr FROM ({pa_ids}) p WHERE documentnumber = ANY(%s)", (org_id, docs))
+            pa = {_txt(r[0]): r[1] for r in cur.fetchall()}
+            cur.execute("""SELECT a.attname FROM pg_index i
+                           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                           WHERE i.indrelid = to_regclass(%s) AND i.indisprimary ORDER BY a.attname""",
+                        (PA_LINK_TABLE,))
+            pk = [r[0] for r in cur.fetchall()]
+            stored = {}
+            if pk and all(k in cols for k in pk):
+                cur.execute(
+                    f"SELECT {', '.join(pk)}, linkref1 FROM {PA_LINK_TABLE} WHERE {tenant_filter(tenant_id)}orgid = %s "
+                    f"AND documentnumber = ANY(%s) AND coalesce(linkref1, '') <> ''",
+                    (org_id, docs),
+                )
+                stored = {tuple(_txt(v) for v in r[:-1]): r[-1] for r in cur.fetchall()}
+        conn.commit()
+    except Exception as e_pa:
+        conn.rollback()
+        clog(f"Notice: payment advice link (linkref1) skipped: {e_pa}", "WARNING")
+        return res
+
+    lr_col = cols.get("linkref1", "linkref1")
+    if lr_col not in res.columns:
+        res[lr_col] = None
+    n_stored = n_pa = 0
+    for i in res.index:
+        if _txt(res.at[i, lr_col]):
+            continue
+        v = stored.get(tuple(_txt(res.at[i, cols[k]]) for k in pk)) if stored else None
+        if v:
+            n_stored += 1
+        else:
+            v = pa.get(_txt(res.at[i, cols["documentnumber"]]))
+            n_pa += 1 if v else 0
+        res.at[i, lr_col] = v or None
+    clog(f"Payment advice link (linkref1) for {PA_LINK_TABLE}: {n_pa} incoming row(s) linked, {n_stored} kept, "
+         f"{n_backfilled} stored row(s) filled", "INFO")
+    return res
+
+
 def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,TransactionID,ProcessCode,ThemeName,commondb_conn, tenant_conn, tenant_cursor,userid,input_data=None,sheet_name=None,force_org_id=False,force_transaction_type=False,assign_context=False):
 
     input_source = input_data.copy() if (input_data is not None and isinstance(input_data, pd.DataFrame)) else DataKey
@@ -4569,6 +4670,8 @@ def updating_response_in_db(ProductName,TenantID,OrgID,DataKey,TransactionType,T
     # Caller-routed data (process_code supplied, e.g. SAP BSID -> BT3H): one context ID per document
     if assign_context:
         res = assign_context_ids(tenant_conn, table_name.lower(), res, OrgID)
+        # SAP rows in BT3H: linkref1 = context ID of the payment advice (active_pa) with the same document number
+        res = link_payment_advice(tenant_conn, table_name.lower(), res, TenantID, OrgID, data_key=DataKey)
 
     # Calculate deterministic row checksum across data columns
     res["checksum"] = compute_row_checksum(res, extra_exclude=auto_id_cols)
