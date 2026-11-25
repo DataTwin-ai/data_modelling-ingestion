@@ -4990,20 +4990,23 @@ def Job_Handler(
                 current_tx_type = "GST Return"
                 response1["TransactionType"] = "GST Return"
 
-            # Check if this exact input was previously ingested to reuse its exact TransactionType for composite PK idempotency
-            try:
-                cur_existing_tx = tenant_conn.cursor()
-                cur_existing_tx.execute(f"SELECT transactiontype FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}output = %s LIMIT 1", (effective_data_key,))
-                row_existing_tx = cur_existing_tx.fetchone()
-                if row_existing_tx and row_existing_tx[0]:
-                    current_tx_type = row_existing_tx[0]
-                    response1["TransactionType"] = current_tx_type
-                cur_existing_tx.close()
-            except Exception:
+            # Check if this exact input was previously ingested to reuse its exact TransactionType for composite PK idempotency.
+            # Not when the caller supplied process_code + transaction_type: the caller's type wins. For table ingestion
+            # the data key (table://<db>/<table>) is the same on every run, so the first run's type would stick forever.
+            if not (forced_proc and transaction_type):
                 try:
-                    tenant_conn.rollback()
+                    cur_existing_tx = tenant_conn.cursor()
+                    cur_existing_tx.execute(f"SELECT transactiontype FROM active_{sheet_proc_code.lower()} WHERE {tenant_filter(effective_tenant_id)}output = %s LIMIT 1", (effective_data_key,))
+                    row_existing_tx = cur_existing_tx.fetchone()
+                    if row_existing_tx and row_existing_tx[0]:
+                        current_tx_type = row_existing_tx[0]
+                        response1["TransactionType"] = current_tx_type
+                    cur_existing_tx.close()
                 except Exception:
-                    pass
+                    try:
+                        tenant_conn.rollback()
+                    except Exception:
+                        pass
 
             update_transaction_log(tenant_conn, effective_org_id, effective_transaction_id, attributes={"ProcessCode": sheet_proc_code, "TransactionType": current_tx_type})
             
