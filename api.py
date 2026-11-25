@@ -10,7 +10,8 @@ import secrets
 from fastapi import FastAPI, HTTPException, Query, status, Request, File, Form, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
+from urllib.parse import quote
 from pydantic import BaseModel, Field
 import psycopg2
 import configparser
@@ -568,18 +569,34 @@ def get_job(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/input", tags=["Dashboard"], dependencies=_DASHBOARD_AUTH)
-def download_job_input(job_id: str):
+async def download_job_input(job_id: str):
     """Download the input workbook that was ingested by this job (completed or failed)."""
     job = job_manager.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
-    path = job.input_file()
-    if not path:
+    source = job.input_source()
+    if source is None:
+        raise HTTPException(status_code=404, detail="This job has no downloadable input file (table ingestion or unsupported file type).")
+    key = str(job.file_path).strip()
+    name = job.file_name or os.path.basename(key.replace("\\", "/"))
+    if os.path.splitext(name)[1].lower() != os.path.splitext(key)[1].lower():
+        name = os.path.basename(key.replace("\\", "/"))
+
+    if source == "local":
+        return FileResponse(job.input_file(), filename=name, media_type="application/octet-stream")
+
+    # Not on this server's disk: fetch it from the tenant's bucket exactly as ingestion did
+    # (direct key, then pretransaction/<name>, then <name>).
+    import app as ingestion_app
+    bucket = "dt-" + str(job.tenant_id or "").lower() + str(ingestion_app.suffixS3 or "").lower()
+    try:
+        data = await asyncio.to_thread(ingestion_app.get_file_bytes, key, bucket)
+    except Exception as e:
+        clog(f"Input download for job {job_id} failed ({bucket}/{key}): {e}", "WARNING")
         raise HTTPException(status_code=404, detail="The input file for this job is no longer available.")
-    name = job.file_name or os.path.basename(path)
-    if os.path.splitext(name)[1].lower() != os.path.splitext(path)[1].lower():
-        name = os.path.basename(path)
-    return FileResponse(path, filename=name, media_type="application/octet-stream")
+    disposition = "attachment; filename*=UTF-8''" + quote(name)
+    return Response(content=data, media_type="application/octet-stream",
+                    headers={"Content-Disposition": disposition})
 
 
 @app.get("/api/jobs/{job_id}/stream", tags=["Dashboard"], dependencies=_DASHBOARD_AUTH)
