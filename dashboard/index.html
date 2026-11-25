@@ -855,26 +855,31 @@
 
   .search-input:focus { outline: none; }
 
-  /* Jobs Table Structure */
+  /* Jobs Table Structure (DataTwin Schema Table Style) */
   .jobs-table-wrap {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   }
 
   .jobs-thead {
     display: grid;
-    grid-template-columns: minmax(210px, 1fr) 58px 108px 98px 46px 38px;
+    grid-template-columns: minmax(210px, 1fr) 70px 116px 104px 66px 46px;
     align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    background: #f8f9fd;
-    border-radius: 8px;
-    font-size: 11.5px;
-    font-weight: 650;
-    color: var(--text-muted);
-    margin-bottom: 4px;
+    gap: 10px;
+    padding: 11px 16px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.055em;
+    color: #64748b;
   }
 
   .jobs-thead span:nth-child(2),
@@ -892,24 +897,28 @@
 
   .job-row {
     display: grid;
-    grid-template-columns: minmax(210px, 1fr) 58px 108px 98px 46px 38px;
+    grid-template-columns: minmax(210px, 1fr) 70px 116px 104px 66px 46px;
     align-items: center;
-    gap: 8px;
-    padding: 12px 12px;
+    gap: 10px;
+    padding: 14px 16px;
     background: #ffffff;
-    border-bottom: 1px solid #f1f4f9;
+    border-bottom: 1px solid #eef2f6;
     cursor: pointer;
-    transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-    border-radius: 8px;
+    transition: background 0.16s ease, box-shadow 0.16s ease;
+    border-radius: 0;
+  }
+
+  .job-row:last-child {
+    border-bottom: none;
   }
 
   .job-row:hover {
-    background: linear-gradient(90deg, #f6f4ff 0%, #ffffff 100%);
-    box-shadow: inset 3px 0 0 var(--brand-start), 0 2px 8px rgba(109, 74, 255, 0.06);
+    background: #f8fafc;
+    box-shadow: inset 3px 0 0 var(--brand-start);
   }
 
   .job-row.active-row {
-    background: linear-gradient(90deg, #ede9fe 0%, #faf8ff 100%);
+    background: #f5f3ff;
     box-shadow: inset 3px 0 0 var(--brand-start);
   }
 
@@ -969,12 +978,34 @@
     color: var(--text-secondary);
   }
 
-  .job-cell-size,
-  .job-cell-time {
-    font-size: 12px;
-    color: var(--text-secondary);
+  .job-cell-size {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
     text-align: center;
+    letter-spacing: 0.02em;
     font-variant-numeric: tabular-nums;
+  }
+
+  .job-cell-time {
+    display: flex;
+    justify-content: center;
+  }
+
+  .time-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #334155;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .job-cell-progress {
@@ -1044,16 +1075,17 @@
 
   /* Badges */
   .status-pill {
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 650;
-    padding: 4px 10px;
-    border-radius: 999px;
+    padding: 3.5px 10px;
+    border-radius: 7px;
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    background: #f1f5f9;
+    background: #f8fafc;
     color: var(--text-secondary);
+    border: 1px solid #e2e8f0;
   }
 
   .status-pill.running { background: var(--run-soft); color: var(--run); border: 1px solid var(--run-border); }
@@ -1358,7 +1390,7 @@
   @media (max-width: 1220px) {
     .workspace-grid { grid-template-columns: 320px minmax(0, 1fr); }
     .jobs-thead, .job-row {
-      grid-template-columns: minmax(150px, 1fr) 60px 104px 98px 48px 36px;
+      grid-template-columns: minmax(150px, 1fr) 64px 104px 98px 58px 42px;
     }
   }
 
@@ -1619,7 +1651,7 @@
                 <span>Progress</span>
                 <span>Status</span>
                 <span>Time</span>
-                <span></span>
+                <span>File</span>
               </div>
 
               <div class="jobs-rows" id="jobsListContainer">
@@ -2267,7 +2299,10 @@
       // Cell 5: Time
       var timeCell = document.createElement("div");
       timeCell.className = "job-cell-time";
-      timeCell.textContent = duration(j) || timeOnly(j.created_at) || "—";
+      var timeChip = document.createElement("span");
+      timeChip.className = "time-chip";
+      timeChip.textContent = duration(j) || timeOnly(j.created_at) || "—";
+      timeCell.appendChild(timeChip);
 
       // Cell 6: Actions (Download input file + Details)
       var actionsCell = document.createElement("div");
