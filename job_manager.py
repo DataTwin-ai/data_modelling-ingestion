@@ -116,17 +116,29 @@ class Job:
     def meta_path(self):
         return os.path.join(JOBS_DIR, f"{self.job_id}.json")
 
-    def input_file(self):
-        """Path of the workbook this job ingested, if it is still on disk and is a spreadsheet.
-        Table jobs (table://...) and S3 keys have no local input file."""
-        p = str(self.file_path or "")
+    def _input_key(self):
+        """The spreadsheet path / S3 key this job read, or None (table jobs, other file types)."""
+        p = str(self.file_path or "").strip()
         if not p or "://" in p or os.path.splitext(p)[1].lower() not in INPUT_FILE_EXTENSIONS:
             return None
-        return p if os.path.isfile(p) else None
+        return p
+
+    def input_file(self):
+        """Local path of the ingested workbook if it is on this server's disk (dashboard uploads)."""
+        p = self._input_key()
+        return p if p and os.path.isfile(p) else None
+
+    def input_source(self):
+        """Where the input file can be downloaded from: 'local', 's3' (the tenant bucket, the same
+        lookup ingestion used) or None when the job had no input file (table ingestion)."""
+        p = self._input_key()
+        if not p:
+            return None
+        return "local" if os.path.isfile(p) else "s3"
 
     def summary(self):
         return {
-            "input_available": self.input_file() is not None,
+            "input_available": self.input_source() is not None,
             "job_id": self.job_id,
             "transaction_id": self.transaction_id,
             "tenant_id": self.tenant_id,

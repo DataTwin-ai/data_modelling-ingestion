@@ -1593,6 +1593,28 @@
       dl.title = "Download the input file used for this ingestion";
       dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
       dl.appendChild(document.createTextNode("Download input file"));
+      dl.addEventListener("click", function (ev) {
+        // Fetch first so a missing file shows a message instead of an error page
+        ev.preventDefault();
+        var a = this, label = a.lastChild, fname = a.getAttribute("download") || "input";
+        if (a.dataset.busy) return;
+        a.dataset.busy = "1"; label.textContent = "Downloading…";
+        fetch(a.href, { credentials: "same-origin" }).then(function (res) {
+          if (!res.ok) return res.json().catch(function () { return {}; }).then(function (b) {
+            throw new Error(b.detail || ("HTTP " + res.status));
+          });
+          return res.blob();
+        }).then(function (blob) {
+          var url = URL.createObjectURL(blob), tmp = document.createElement("a");
+          tmp.href = url; tmp.download = fname; document.body.appendChild(tmp); tmp.click();
+          setTimeout(function () { URL.revokeObjectURL(url); tmp.remove(); }, 1000);
+          label.textContent = "Download input file";
+        }).catch(function (err) {
+          label.textContent = "Not available";
+          a.title = err.message || "Download failed";
+          setTimeout(function () { label.textContent = "Download input file"; }, 4000);
+        }).finally(function () { delete a.dataset.busy; });
+      });
       box.appendChild(dl);
       mb.appendChild(box);
     }
